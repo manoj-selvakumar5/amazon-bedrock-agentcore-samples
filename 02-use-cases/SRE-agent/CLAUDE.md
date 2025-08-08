@@ -4,67 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is the SRE Agent - a multi-agent system built on Amazon Bedrock AgentCore for Site Reliability Engineering tasks. The system uses LangGraph to orchestrate specialized agents (Kubernetes, Logs, Metrics, Runbooks) coordinated by a Supervisor Agent that manages memory integration and user personalization.
-
-## Development Commands
-
-### Environment Setup
-```bash
-# Create and activate virtual environment
-uv venv --python 3.12
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-
-# Install dependencies
-uv pip install -e .
-uv sync --dev  # Include development dependencies
-```
-
-### Code Quality (Use Makefile for standardized commands)
-```bash
-make quality        # Run all quality checks
-make format         # Format code with black
-make lint           # Lint with ruff  
-make lint-fix       # Auto-fix linting issues
-make typecheck      # Type check with mypy
-make security       # Security scan with bandit
-make test           # Run pytest tests
-make clean          # Clean build artifacts
-```
-
-### Agent Execution
-```bash
-# Local CLI usage
-sre-agent --prompt "Why are payment-service pods crash looping?" --provider bedrock
-sre-agent --interactive  # Interactive mode
-
-# With environment variables
-USER_ID=Alice sre-agent --prompt "API response times degraded" --provider bedrock
-```
-
-### Gateway and Backend Management
-```bash
-# Configure gateway and restart backend services (must run every 24h due to token expiry)
-./scripts/configure_gateway.sh
-
-# Start demo backend servers
-cd backend && ./scripts/start_demo_backend.sh --host $PRIVATE_IP --ssl-keyfile /opt/ssl/privkey.pem --ssl-certfile /opt/ssl/fullchain.pem
-
-# Memory management
-uv run python scripts/manage_memories.py update  # Initialize user preferences
-uv run python scripts/manage_memories.py list   # Check memory status
-```
-
-### Container and Deployment
-```bash
-# Local container build for testing
-LOCAL_BUILD=true ./deployment/build_and_deploy.sh
-
-# Production deployment to AgentCore Runtime
-./deployment/build_and_deploy.sh [ECR_REPO_NAME]
-
-# Invoke deployed agent
-uv run python deployment/invoke_agent_runtime.py
-```
+This is the SRE Agent - a multi-agent system built on Amazon Bedrock AgentCore for Site Reliability Engineering tasks. The system uses Strands Agents to orchestrate specialized agents (Kubernetes, Logs, Metrics, Runbooks) coordinated by a Supervisor Agent that manages memory integration and user personalization.
 
 ## Architecture Overview
 
@@ -91,106 +31,104 @@ Tools are filtered per agent via `sre_agent/config/agent_config.yaml`:
 - **Infrastructure Knowledge**: Pattern extraction from agent responses
 - Memory managed through `scripts/manage_memories.py` and `sre_agent/memory/client.py`
 
-## Configuration Files
-
-### Environment Variables
-Copy `sre_agent/.env.example` to `sre_agent/.env` and configure:
-- `ANTHROPIC_API_KEY`: Required for Anthropic models
-- `GATEWAY_ACCESS_TOKEN`: Gateway authentication (updated by configure_gateway.sh)
-- `USER_ID`: For memory personalization (Alice/Carol preconfigured)
-- `LLM_PROVIDER`: bedrock or anthropic
-
-### Agent Configuration
-`sre_agent/config/agent_config.yaml`: Maps agents to tools and sets gateway URI
-
-### Memory Configuration  
-`sre_agent/memory/config.py`: Retention policies and feature flags
-
-## Key Code Patterns
-
-### Agent Creation
-Agents inherit from `BaseAgentNode` in `sre_agent/agent_nodes.py` with tool filtering and LLM provider abstraction.
-
-### Memory Hooks
-Memory system uses hooks in `sre_agent/memory/hooks.py` to automatically capture user preferences and investigation patterns.
-
-### Investigation Flow
-1. Supervisor analyzes query and retrieves memories
-2. Creates investigation plan via `InvestigationPlan` model
-3. Routes to specialist agents in parallel/sequence  
-4. Aggregates results with personalization
-5. Generates markdown reports in `backend/data/reports/`
-
-### Error Handling
-LLM creation uses `create_llm_with_error_handling` in `sre_agent/llm_utils.py` for provider fallbacks.
-
-## Testing
-
-### Unit Tests
-```bash
-# Run all tests
-uv run pytest
-
-# Specific test files
-uv run pytest tests/unit/memory/test_strategies.py
-uv run pytest tests/integration/test_memory_integration.py
-```
-
-### Manual Testing
-Use demo environment with synthetic data in `backend/data/` for safe testing without production impact.
-
-## Deployment Stages
-
-1. **Local Development**: CLI with AgentCore Gateway via MCP
-2. **Container Testing**: Docker build with same gateway connection  
-3. **Production**: AgentCore Runtime with full Memory integration
-
-Gateway tokens expire every 24 hours - run `./scripts/configure_gateway.sh` to refresh.
 
 ## Workshop Development
 
-### Workshop Structure
-A comprehensive workshop is available in `workshops/sre-agent/` with progressive Jupyter notebooks:
+### Progressive Complexity Workshop Series
+A comprehensive workshop series in `workshops/sre-agent/` following AWS workshop best practices with progressive complexity building:
 
-**Quick Start Demo:**
-0. **00-sre-agent-demo.ipynb**: 30-minute Strands Agent SRE demo with Amazon Bedrock (no AWS setup required)
+**Workshop Philosophy:**
+- **Self-contained notebooks** - no external utils or config dependencies
+- **Progressive complexity** - one concept layer added per notebook
+- **Immediate value** - each notebook delivers working functionality
+- **AWS workshop standards** - clear objectives, professional structure, minimal setup
 
-**Full Workshop Series:**
-1. **01-sre-agent-foundations.ipynb**: Environment setup, architecture overview, demo backend
-2. **02-gateway-and-mcp-tools.ipynb**: AgentCore Gateway integration with MCP tools  
-3. **03-multi-agent-system.ipynb**: LangGraph multi-agent orchestration
-4. **04-memory-and-personalization.ipynb**: AgentCore Memory integration
-5. **05-production-deployment.ipynb**: AgentCore Runtime deployment
+**Workshop Modules:**
+
+0. **00-single-tool-agent.ipynb** (15 min) - Foundation
+   - Single Strands Agent with claude-3-haiku model
+   - One @tool decorator (get_pod_status)
+   - FastAPI backend with realistic Kubernetes data
+   - Proves core AI-powered infrastructure troubleshooting concept
+   - 95% faster incident response vs manual investigation
+
+**Planned Progressive Series:**
+1. **01-multiple-tools-agent.ipynb** (30 min) - Tool Expansion
+   - Same agent, 3 Kubernetes tools
+   - Complex tool orchestration and decision-making
+   
+2. **02-gateway-integration.ipynb** (45 min) - Security Layer
+   - AgentCore Gateway with MCP protocol
+   - OAuth authentication, production security
+   
+3. **03-multi-domain-agent.ipynb** (60 min) - Cross-System Analysis
+   - 4 backend APIs (K8s, Logs, Metrics, Runbooks)
+   - Single super-agent with 8-12 tools
+   
+4. **04-multi-agent-system.ipynb** (75 min) - Specialist Architecture
+   - 4 Strands Agents with GraphBuilder orchestration
+   - Domain specialization and agent coordination
+   
+5. **05-memory-personalization.ipynb** (60 min) - Persistent Learning
+   - AgentCore Memory integration
+   - Cross-session knowledge and user preferences
+   
+6. **06-production-deployment.ipynb** (45 min) - Enterprise Scale
+   - BedrockAgentCoreApp runtime deployment
+   - Streaming, monitoring, enterprise features
+
+### Workshop Design Principles
+- **FastAPI backends** - professional async patterns from actual SRE codebase
+- **Strands framework** - @tool decorators, BedrockModel, claude-3-haiku cost optimization
+- **Real scenarios** - authentic infrastructure failures (memory leaks, pod crashes)
+- **Minimal emoji usage** - only ✅ and ❌ for status indicators
+- **Error handling** - comprehensive troubleshooting guidance
+- **AWS integration** - Bedrock, AgentCore Gateway, Runtime deployment
 
 ### Workshop Commands
 ```bash
-# Quick Strands Agent demo (30 minutes, no AWS setup)
+# Start with foundation module (15 minutes)
 cd workshops/sre-agent/
-pip install strands strands-tools
-jupyter notebook notebooks/00-sre-agent-demo.ipynb
+pip install fastapi uvicorn strands requests
+jupyter notebook notebooks/00-single-tool-agent.ipynb
 
-# Full workshop (4+ hours, AWS integration)
-jupyter notebook notebooks/01-sre-agent-foundations.ipynb
-
-# Workshop utilities and validation
-python helpers/workshop_utils.py     # AWS resource management
-python helpers/validation_helpers.py # Progress validation
-python helpers/sre_scenarios.py      # Test scenarios
+# Progress through complexity building
+jupyter notebook notebooks/01-multiple-tools-agent.ipynb    # Tool expansion
+jupyter notebook notebooks/02-gateway-integration.ipynb     # Security layer
+jupyter notebook notebooks/03-multi-domain-agent.ipynb      # Cross-system analysis
+jupyter notebook notebooks/04-multi-agent-system.ipynb      # Specialist architecture
+jupyter notebook notebooks/05-memory-personalization.ipynb  # Persistent learning
+jupyter notebook notebooks/06-production-deployment.ipynb   # Enterprise deployment
 ```
 
-### Workshop Helper Modules
-- `workshops/sre-agent/helpers/workshop_utils.py`: AWS resource creation, Cognito setup, cleanup
-- `workshops/sre-agent/helpers/sre_scenarios.py`: 8 realistic SRE incident scenarios
-- `workshops/sre-agent/helpers/validation_helpers.py`: Comprehensive validation functions
-- `workshops/sre-agent/configs/workshop_config.yaml`: Centralized workshop configuration
+### Key Development Insights
+**What Led to This Workshop Design:**
 
-### SRE Test Scenarios
-Pre-built scenarios for testing with varying complexity:
-- **pod-crash-loop**: Kubernetes container failures (beginner)
-- **api-response-degradation**: Multi-service performance issues (intermediate) 
-- **database-connection-errors**: Connection pool exhaustion (intermediate)
-- **memory-leak-investigation**: Long-term resource analysis (advanced)
-- **service-mesh-failure**: Distributed system communication (advanced)
+1. **Complexity Problem Solved**: Original approach jumped from 0 → 20 tools + 4 agents + LangGraph + Memory, overwhelming users
+2. **Progressive Learning**: Each notebook adds ONE complexity dimension while reinforcing previous concepts  
+3. **Self-Contained Design**: No workshop_utils imports - everything inline for reliability and clarity
+4. **FastAPI Choice**: More professional than Flask, matches actual SRE codebase patterns, better for async operations
+5. **Strands Framework**: Simpler than LangGraph for learning, @tool decorators are intuitive, direct path to AgentCore Runtime
+6. **AWS Workshop Standards**: Clear objectives, estimated times, minimal setup, immediate value delivery
+7. **Real Data Structures**: Uses authentic pod/container/event structures from actual backend/data/ files
+8. **Cost Optimization**: claude-3-haiku provides 95% cost savings vs Sonnet with sufficient capability for SRE tasks
+
+**Technical Decision Points:**
+- **Single tool first** → Multiple tools → Multi-domain → Multi-agent → Memory → Production
+- **FastAPI over Flask** → Better async support, professional patterns, matches codebase
+- **Strands over LangGraph** → Simpler learning curve, @tool decorators intuitive, production path clear  
+- **Self-contained over utils** → No external dependencies, notebooks work independently
+- **Emoji minimalism** → Only ✅/❌ status indicators, professional tone throughout
+- **Immediate value** → Each notebook delivers working AI agent, builds confidence progressively
+
+### SRE Scenarios Covered
+Progressive scenario complexity across notebooks:
+- **Module 0**: Single pod crash (OutOfMemoryError) - Foundation concept
+- **Module 1**: Multi-pod investigation with resource analysis - Tool orchestration  
+- **Module 2**: Same scenarios through secure gateway - Production readiness
+- **Module 3**: Cross-system correlation (pods + logs + metrics) - Complex analysis
+- **Module 4**: Specialist agent collaboration - Enterprise architecture
+- **Module 5**: Learning from past incidents - Intelligent automation
 
 ## Important Notes
 
