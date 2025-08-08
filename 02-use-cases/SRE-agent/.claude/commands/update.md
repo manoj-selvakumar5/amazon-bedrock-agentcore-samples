@@ -1,0 +1,1 @@
+Document all the changes and work that you have completed so far in notes.md. If notes.md doesn't exist, create it. Add a timestamped entry (MM/DD/YYYY HH:MM AM/PM format) that logs everything you do - files created, modified, functions written, bugs fixed, features implemented, etc. Make this an ongoing log of your contributions and progress on this project.
