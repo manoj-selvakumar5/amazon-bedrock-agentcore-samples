@@ -1,0 +1,176 @@
+{
+  "pods": [
+    {
+      "name": "payment-service-7d4f8-x5m1q",
+      "namespace": "production",
+      "status": "CrashLoopBackOff",
+      "ready": false,
+      "age": "4h12m",
+      "restart_count": 15,
+      "cpu_usage": "25%",
+      "memory_usage": "98%",
+      "node": "worker-node-2",
+      "last_restart": "2024-01-15T14:24:30Z",
+      "resource_limits": {"memory": "512Mi", "cpu": "500m"},
+      "containers": [
+        {
+          "name": "payment-api",
+          "image": "payment-service:v1.2.3",
+          "status": "Waiting",
+          "reason": "CrashLoopBackOff",
+          "message": "Back-off 5m0s restarting failed container",
+          "exit_code": "137"
+        }
+      ],
+      "events": [
+        "Warning: OutOfMemoryKilled - Container exceeded memory limits",
+        "Warning: BackOff - Back-off restarting failed container",
+        "Normal: Pulled - Successfully pulled image payment-service:v1.2.3"
+      ]
+    },
+    {
+      "name": "payment-service-7d4f8-j9k7l",
+      "namespace": "production",
+      "status": "Running",
+      "ready": true,
+      "age": "4h45m",
+      "restart_count": 2,
+      "cpu_usage": "78%",
+      "memory_usage": "87%",
+      "node": "worker-node-1",
+      "last_restart": "2024-01-15T12:15:45Z",
+      "resource_limits": {"memory": "512Mi", "cpu": "500m"},
+      "containers": [
+        {
+          "name": "payment-api",
+          "image": "payment-service:v1.2.3",
+          "status": "Running",
+          "reason": "Started",
+          "message": "Container running but approaching memory limits"
+        }
+      ],
+      "events": [
+        "Warning: MemoryPressure - Container approaching memory limit (87%)",
+        "Warning: HighCPUUsage - Container using high CPU (78%)",
+        "Normal: Started - Started container payment-api"
+      ]
+    },
+    {
+      "name": "user-service-9k2x1-y6n2r",
+      "namespace": "production",
+      "status": "Running",
+      "ready": true,
+      "age": "8h30m",
+      "restart_count": 0,
+      "cpu_usage": "32%",
+      "memory_usage": "64%",
+      "node": "worker-node-1",
+      "last_restart": null,
+      "resource_limits": {"memory": "256Mi", "cpu": "250m"},
+      "containers": [
+        {
+          "name": "user-api",
+          "image": "user-service:v1.1.0",
+          "status": "Running",
+          "reason": "Started",
+          "message": "Container started successfully"
+        }
+      ],
+      "events": [
+        "Normal: Pulled - Successfully pulled image user-service:v1.1.0",
+        "Normal: Created - Created container user-api",
+        "Normal: Started - Started container user-api"
+      ]
+    }
+  ],
+  "events": {
+    "payment-service-7d4f8-x5m1q": [
+      {
+        "type": "Warning",
+        "reason": "OutOfMemoryKilled",
+        "message": "Container payment-api was killed due to OOM (Out of Memory). Memory cgroup usage exceeds configured limit of 512Mi.",
+        "count": 15,
+        "timestamp": "2024-01-15T14:24:28Z"
+      },
+      {
+        "type": "Warning",
+        "reason": "BackOff",
+        "message": "Back-off restarting failed container payment-api in pod payment-service-7d4f8-x5m1q",
+        "count": 12,
+        "timestamp": "2024-01-15T14:24:45Z"
+      },
+      {
+        "type": "Normal",
+        "reason": "Pulled",
+        "message": "Successfully pulled image 'payment-service:v1.2.3'",
+        "count": 16,
+        "timestamp": "2024-01-15T14:19:20Z"
+      }
+    ],
+    "payment-service-7d4f8-j9k7l": [
+      {
+        "type": "Warning",
+        "reason": "MemoryPressure",
+        "message": "Container payment-api is approaching memory limit. Current usage: 87% of allocated 512Mi.",
+        "count": 5,
+        "timestamp": "2024-01-15T14:20:05Z"
+      },
+      {
+        "type": "Warning",
+        "reason": "HighCPUUsage",
+        "message": "Container payment-api is using high CPU: 78% of allocated 500m.",
+        "count": 8,
+        "timestamp": "2024-01-15T14:15:30Z"
+      }
+    ],
+    "user-service-9k2x1-y6n2r": [
+      {
+        "type": "Normal",
+        "reason": "Started",
+        "message": "Started container user-api",
+        "count": 1,
+        "timestamp": "2024-01-15T08:30:20Z"
+      }
+    ]
+  },
+  "resources": {
+    "payment-service-7d4f8-x5m1q": {
+      "memory": [
+        {"timestamp": "2024-01-15T14:00:00Z", "value": "91%"},
+        {"timestamp": "2024-01-15T14:20:00Z", "value": "98%"},
+        {"timestamp": "2024-01-15T14:24:30Z", "value": "100%"}
+      ],
+      "cpu": [
+        {"timestamp": "2024-01-15T14:00:00Z", "value": "25%"},
+        {"timestamp": "2024-01-15T14:20:00Z", "value": "25%"},
+        {"timestamp": "2024-01-15T14:24:30Z", "value": "25%"}
+      ],
+      "limits": {"memory": "512Mi", "cpu": "500m"},
+      "requests": {"memory": "256Mi", "cpu": "250m"}
+    },
+    "payment-service-7d4f8-j9k7l": {
+      "memory": [
+        {"timestamp": "2024-01-15T14:00:00Z", "value": "79%"},
+        {"timestamp": "2024-01-15T14:20:00Z", "value": "87%"}
+      ],
+      "cpu": [
+        {"timestamp": "2024-01-15T14:00:00Z", "value": "72%"},
+        {"timestamp": "2024-01-15T14:20:00Z", "value": "78%"}
+      ],
+      "limits": {"memory": "512Mi", "cpu": "500m"},
+      "requests": {"memory": "256Mi", "cpu": "250m"}
+    },
+    "user-service-9k2x1-y6n2r": {
+      "memory": [
+        {"timestamp": "2024-01-15T14:00:00Z", "value": "63%"},
+        {"timestamp": "2024-01-15T14:20:00Z", "value": "64%"}
+      ],
+      "cpu": [
+        {"timestamp": "2024-01-15T14:00:00Z", "value": "32%"},
+        {"timestamp": "2024-01-15T14:20:00Z", "value": "32%"}
+      ],
+      "limits": {"memory": "256Mi", "cpu": "250m"},
+      "requests": {"memory": "128Mi", "cpu": "100m"}
+    }
+  }
+}
