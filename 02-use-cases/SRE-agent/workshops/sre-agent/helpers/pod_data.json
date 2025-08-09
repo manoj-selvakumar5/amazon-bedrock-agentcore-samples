@@ -1,0 +1,109 @@
+{
+  "pods": [
+    {
+      "name": "payment-service-7d4f8-x5m1q",
+      "namespace": "production",
+      "status": "CrashLoopBackOff",
+      "ready": false,
+      "restart_count": 15,
+      "cpu_usage": "25%",
+      "memory_usage": "98%",
+      "node": "worker-node-2",
+      "last_restart": "2024-01-15T14:24:30Z",
+      "age": "2h15m",
+      "containers": [
+        {
+          "name": "payment-api",
+          "image": "payment-service:v1.2.3",
+          "status": "Waiting",
+          "reason": "CrashLoopBackOff",
+          "message": "Back-off 5m0s restarting failed container",
+          "exit_code": 137
+        }
+      ],
+      "events": [
+        "Warning: OutOfMemoryError in container payment-api",
+        "Warning: Back-off restarting failed container",
+        "Error: Container payment-api failed with exit code 137",
+        "Warning: Failed to pull image payment-service:v1.2.3"
+      ],
+      "resource_limits": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      },
+      "resource_requests": {
+        "cpu": "250m",
+        "memory": "256Mi"
+      }
+    },
+    {
+      "name": "user-service-9k2x1-y6n2r",
+      "namespace": "production",
+      "status": "Running",
+      "ready": true,
+      "restart_count": 0,
+      "cpu_usage": "32%",
+      "memory_usage": "64%",
+      "node": "worker-node-1",
+      "last_restart": null,
+      "age": "5d2h",
+      "containers": [
+        {
+          "name": "user-api",
+          "image": "user-service:v1.1.0",
+          "status": "Running",
+          "reason": "Started",
+          "message": "Container started successfully",
+          "exit_code": null
+        }
+      ],
+      "events": [
+        "Normal: Successfully pulled image user-service:v1.1.0",
+        "Normal: Created container user-api",
+        "Normal: Started container user-api"
+      ],
+      "resource_limits": {
+        "cpu": "1000m",
+        "memory": "1Gi"
+      },
+      "resource_requests": {
+        "cpu": "500m",
+        "memory": "512Mi"
+      }
+    },
+    {
+      "name": "database-service-abc123-def456",
+      "namespace": "production",
+      "status": "Pending",
+      "ready": false,
+      "restart_count": 0,
+      "cpu_usage": "0%",
+      "memory_usage": "0%",
+      "node": null,
+      "last_restart": null,
+      "age": "10m",
+      "containers": [
+        {
+          "name": "postgres",
+          "image": "postgres:14",
+          "status": "Waiting",
+          "reason": "PodScheduled",
+          "message": "0/3 nodes are available: insufficient memory",
+          "exit_code": null
+        }
+      ],
+      "events": [
+        "Warning: FailedScheduling - 0/3 nodes are available: insufficient memory",
+        "Normal: Scheduled - Successfully assigned to worker-node-3"
+      ],
+      "resource_limits": {
+        "cpu": "2000m",
+        "memory": "4Gi"
+      },
+      "resource_requests": {
+        "cpu": "1000m",
+        "memory": "2Gi"
+      }
+    }
+  ]
+}
