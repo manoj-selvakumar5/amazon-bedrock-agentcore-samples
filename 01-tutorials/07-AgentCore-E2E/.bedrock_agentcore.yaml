@@ -1,0 +1,34 @@
+default_agent: customer_support_agent
+agents:
+  customer_support_agent:
+    name: customer_support_agent
+    entrypoint: /Users/manojs/Documents/Code/amazon-bedrock-agentcore-samples/01-tutorials/07-AgentCore-E2E/lab_helpers/lab4_runtime.py
+    platform: linux/arm64
+    container_runtime: docker
+    aws:
+      execution_role: arn:aws:iam::533267284022:role/CustomerSupportAssistantBedrockAgentCoreRole-us-east-1
+      execution_role_auto_create: false
+      account: '533267284022'
+      region: us-east-1
+      ecr_repository: 533267284022.dkr.ecr.us-east-1.amazonaws.com/bedrock-agentcore-customer_support_agent
+      ecr_auto_create: false
+      network_configuration:
+        network_mode: PUBLIC
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+    bedrock_agentcore:
+      agent_id: customer_support_agent-b0Ilb5ACG7
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:533267284022:runtime/customer_support_agent-b0Ilb5ACG7
+      agent_session_id: 3fa2b569-b68e-4a86-9879-7cc3deb203fb
+    codebuild:
+      project_name: bedrock-agentcore-customer_support_agent-builder
+      execution_role: arn:aws:iam::533267284022:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-aa96c3a063
+      source_bucket: bedrock-agentcore-codebuild-sources-533267284022-us-east-1
+    authorizer_configuration:
+      customJWTAuthorizer:
+        allowedClients:
+        - 2urjqbnd8tmbnnagto09itdlo2
+        discoveryUrl: https://cognito-idp.us-east-1.amazonaws.com/us-east-1_t0E1W2Tcf/.well-known/openid-configuration
+    oauth_configuration: null

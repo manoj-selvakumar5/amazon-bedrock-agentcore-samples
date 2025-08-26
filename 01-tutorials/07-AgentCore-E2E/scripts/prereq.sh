@@ -4,16 +4,16 @@
 BUCKET_NAME=${1:-customersupport112}
 INFRA_STACK_NAME=${2:-CustomerSupportStackInfra}
 COGNITO_STACK_NAME=${3:-CustomerSupportStackCognito}
-INFRA_TEMPLATE_FILE="prerequisite/infrastructure.yaml"
-COGNITO_TEMPLATE_FILE="prerequisite/cognito.yaml"
+INFRA_TEMPLATE_FILE="../prerequisite/infrastructure.yaml"
+COGNITO_TEMPLATE_FILE="../prerequisite/cognito.yaml"
 REGION=$(aws configure get region 2>/dev/null || echo "us-west-2")
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 FULL_BUCKET_NAME="${BUCKET_NAME}-${ACCOUNT_ID}-${REGION}"
 ZIP_FILE="lambda.zip"
 LAYER_ZIP_FILE="ddgs-layer.zip"
-LAYER_SOURCE="prerequisite/lambda/python"
+LAYER_SOURCE="../prerequisite/lambda/python"
 S3_LAYER_KEY="${LAYER_ZIP_FILE}"
-LAMBDA_SRC="prerequisite/lambda/python"
+LAMBDA_SRC="../prerequisite/lambda/python"
 S3_KEY="${ZIP_FILE}"
 
 echo "Region: $REGION"
@@ -33,7 +33,6 @@ else
 fi
 
 # ----- 2. Zip Lambda code -----
-sudo apt install zip
 echo "📦 Zipping contents of $LAMBDA_SRC into $ZIP_FILE..."
 cd "$LAMBDA_SRC"
 zip -r "../../../$ZIP_FILE" . > /dev/null
