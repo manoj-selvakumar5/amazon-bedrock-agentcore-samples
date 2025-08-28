@@ -10,8 +10,8 @@ agents:
       execution_role_auto_create: false
       account: '533267284022'
       region: us-east-1
-      ecr_repository: 533267284022.dkr.ecr.us-east-1.amazonaws.com/bedrock-agentcore-customer_support_agent
-      ecr_auto_create: false
+      ecr_repository: null
+      ecr_auto_create: true
       network_configuration:
         network_mode: PUBLIC
       protocol_configuration:
@@ -23,9 +23,9 @@ agents:
       agent_arn: arn:aws:bedrock-agentcore:us-east-1:533267284022:runtime/customer_support_agent-b0Ilb5ACG7
       agent_session_id: 8cc8b417-ef9c-49c6-aecc-59ac1e88cd04
     codebuild:
-      project_name: bedrock-agentcore-customer_support_agent-builder
-      execution_role: arn:aws:iam::533267284022:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-aa96c3a063
-      source_bucket: bedrock-agentcore-codebuild-sources-533267284022-us-east-1
+      project_name: null
+      execution_role: null
+      source_bucket: null
     authorizer_configuration:
       customJWTAuthorizer:
         allowedClients:

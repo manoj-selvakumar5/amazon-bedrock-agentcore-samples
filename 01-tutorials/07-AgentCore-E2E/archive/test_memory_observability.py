@@ -19,7 +19,7 @@ def test_imports():
     """Test that the required modules can be imported when available"""
     try:
         # Test the main module structure
-        import agentcore_memory_observability as amo
+        import archive.agentcore_memory_observability as amo
         logger.info("✅ Successfully imported agentcore_memory_observability")
         
         # Check main classes exist
@@ -44,7 +44,7 @@ def test_class_structure():
             BedrockModel=Mock(),
             HookProvider=Mock(),
         ):
-            import agentcore_memory_observability as amo
+            import archive.agentcore_memory_observability as amo
             
             # Test ObservableMemoryClient
             mock_client = amo.ObservableMemoryClient("us-east-1")
@@ -70,7 +70,7 @@ def test_configuration():
     """Test the configuration and environment setup"""
     try:
         # Test argument parsing
-        import agentcore_memory_observability as amo
+        import archive.agentcore_memory_observability as amo
         
         # Mock sys.argv for argument parsing test
         with patch.object(sys, 'argv', ['test', '--session-id', 'test-123', '--actor-id', 'customer-test']):
