@@ -10,8 +10,8 @@ agents:
       execution_role_auto_create: false
       account: '533267284022'
       region: us-east-1
-      ecr_repository: null
-      ecr_auto_create: true
+      ecr_repository: 533267284022.dkr.ecr.us-east-1.amazonaws.com/bedrock-agentcore-customer_support_agent
+      ecr_auto_create: false
       network_configuration:
         network_mode: PUBLIC
       protocol_configuration:
@@ -19,16 +19,16 @@ agents:
       observability:
         enabled: true
     bedrock_agentcore:
-      agent_id: customer_support_agent-b0Ilb5ACG7
-      agent_arn: arn:aws:bedrock-agentcore:us-east-1:533267284022:runtime/customer_support_agent-b0Ilb5ACG7
-      agent_session_id: 8cc8b417-ef9c-49c6-aecc-59ac1e88cd04
+      agent_id: customer_support_agent-DL7tB3GLHu
+      agent_arn: arn:aws:bedrock-agentcore:us-east-1:533267284022:runtime/customer_support_agent-DL7tB3GLHu
+      agent_session_id: 986a2504-4a19-4a26-975d-9a2561619a17
     codebuild:
-      project_name: null
-      execution_role: null
-      source_bucket: null
+      project_name: bedrock-agentcore-customer_support_agent-builder
+      execution_role: arn:aws:iam::533267284022:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-aa96c3a063
+      source_bucket: bedrock-agentcore-codebuild-sources-533267284022-us-east-1
     authorizer_configuration:
       customJWTAuthorizer:
         allowedClients:
-        - 3cf2nll48hcatm7ra5m2t50747
-        discoveryUrl: https://cognito-idp.us-east-1.amazonaws.com/us-east-1_CIRX63hRl/.well-known/openid-configuration
+        - 70f6imuqe835i6r86q3om523rv
+        discoveryUrl: https://cognito-idp.us-east-1.amazonaws.com/us-east-1_aeqHzmQ0f/.well-known/openid-configuration
     oauth_configuration: null
