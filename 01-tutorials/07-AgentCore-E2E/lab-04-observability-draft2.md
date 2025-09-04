@@ -177,28 +177,33 @@ Each span includes attributes such as `memory.id`, `session.id`, `event.id`, `ac
 
 By combining **metrics** (high-level monitoring) and **spans** (operation-level tracing), you gain comprehensive visibility into the behavior and performance of your AgentCore resources.
 
+---
 
 ## 4.4 AgentCore Observability Logs
 
-CloudWatch Logs capture detailed, time‑stamped events across AgentCore components. These structured JSON logs provide complete visibility into agent operations, background processing, and system behavior for deep troubleshooting and performance analysis.
+CloudWatch Logs capture detailed, time‑stamped events across AgentCore components. These structured JSON logs provide visibility into agent operations, background processing, and system behavior for deep troubleshooting and performance analysis.
+
+Now that you have built a customer support agent system across Labs 1-4—creating a functional customer support agent prototype with local tools (Lab 1), enhancing it with persistent memory for conversation context and personalization (Lab 2), integrating with AgentCore Gateway to centrally manage shared tools and secure authentication (Lab 3), and deploying to AgentCore Runtime for production-ready auto-scaling with observability (Lab 4)—let's explore the detailed logs each component generates to help you monitor and debug your production agent system.
 
 ### Memory Logs - Setup and Navigation
 
 **Enable Memory Log Delivery:**
 
-1. **Navigate to your Memory resource** in the AWS Console:
-   - Go to Amazon Bedrock AgentCore → Memory → [Your Memory Name]
+1. **Navigate to your Memory resource** from Lab 2 in the AWS Console:
+   - Go to Amazon Bedrock AgentCore → Memory → **CustomerSupportMemory** (created in Lab 2)
 
 2. **Configure Log Delivery:**
    - In the **Observability** section, find **Log delivery**
    - Click **Add** to create a new log delivery configuration
    - Select **Log type**: `APPLICATION_LOGS`
-   - **Destination log group**: `/aws/vendedlogs/bedrock-agentcore/memory/APPLICATION_LOGS/`
+   - **Destination log group**: `/aws/vendedlogs/bedrock-agentcore/memory/APPLICATION_LOGS/CustomerSupportMemory-xxxxxxxxxxxx`. The log group name will include an automatically generated ID suffix (like `CustomerSupportMemory-WcEhTTFp10`) unique to your Memory resource.
    - Click **Add** to enable log delivery
+
+   ![Memory Log Delivery Configuration](images/Configure_log_delivery_for_Memory.png)
 
 3. **Access Memory Logs in CloudWatch:**
    - Navigate to **CloudWatch** → **Logs** → **Log groups**
-   - Find the log group: `/aws/vendedlogs/bedrock-agentcore/memory/APPLICATION_LOGS/[YourMemoryName]`
+   - Find the log group: `/aws/vendedlogs/bedrock-agentcore/memory/APPLICATION_LOGS/CustomerSupportMemory-[auto-generated-ID]`
    - Click to open: **BedrockAgentCoreMemory_ApplicationLogs**
 
 ### Understanding Memory Log Structure
@@ -207,7 +212,7 @@ Memory logs provide detailed insight into background processing operations. Each
 
 ```json
 {
-  "resource_arn": "arn:aws:bedrock-agentcore:us-east-1:account:memory/CustomerSupportMemory-ID",
+  "resource_arn": "arn:aws:bedrock-agentcore:<region>:<account-id>:memory/CustomerSupportMemory-ID",
   "event_timestamp": 1756957336547,
   "memory_strategy_id": "CustomerPreferences-EH93NK8WlQ", 
   "namespace": "support/customer/customer_001/preferences",
@@ -223,7 +228,7 @@ Memory logs provide detailed insight into background processing operations. Each
 
 **Key Fields Explained:**
 - **resource_arn** - Memory resource identifier for filtering logs across multiple memory instances
-- **event_timestamp** - Precise timing for performance analysis and sequence reconstruction  
+- **event_timestamp** - Timestamp for when the memory operation occured
 - **memory_strategy_id** - Strategy type (`CustomerPreferences`, `CustomerSupportSemantic`) to track different memory processing approaches
 - **namespace** - Organizational structure showing customer/context segmentation (`support/customer/{customer_id}/{type}`)
 - **actor_id** - Customer or user identifier for session correlation
@@ -234,7 +239,7 @@ Memory logs provide detailed insight into background processing operations. Each
 
 ### Memory Processing Workflow in Logs
 
-The log snippets reveal the complete memory processing pipeline for each customer interaction:
+When your agent (from Lab 1) interacts with customers and stores conversation context using the Memory system (from Lab 2), you'll see this complete processing pipeline in the logs:
 
 **1. Extraction Phase** (Converting conversations to memories):
 ```json
@@ -283,56 +288,27 @@ The log snippets reveal the complete memory processing pipeline for each custome
 - Analyze memory consolidation frequency and effectiveness
 - Identify opportunities for memory strategy optimization or tuning
 
-### Runtime Logs - Setup and Navigation
 
-**Enable Runtime Log Delivery:**
-
-Runtime logs are automatically enabled and delivered to CloudWatch when you create an AgentCore Runtime resource. No additional configuration is required.
-
-**Access Runtime Logs in CloudWatch:**
-- Navigate to **CloudWatch** → **Logs** → **Log groups**
-- Find the log groups:
-  - **Runtime application logs**: `/aws/bedrock-agentcore/runtimes/{runtime-id}-DEFAULT`
-  - **Runtime system logs**: `/aws/bedrock-agentcore/runtimes/{runtime-id}-DEFAULT/runtime-logs`
-
-### Understanding Runtime Log Structure
-
-Runtime logs capture agent conversations, tool invocations, memory hook operations, and system events for comprehensive request flow analysis. These logs provide end-to-end visibility into agent behavior and user interactions.
-
-### Runtime Log Use Cases
-
-**1. Agent Performance Monitoring:**
-- Track agent response times and conversation flow efficiency
-- Monitor tool invocation patterns and success rates
-- Analyze memory hook execution and data flow
-
-**2. Conversation Debugging:**
-- Debug agent reasoning and decision-making processes
-- Trace user interactions and agent responses end-to-end
-- Verify proper integration with Memory and Gateway components
-
-**3. System Health Analytics:**
-- Monitor runtime container health and resource utilization
-- Track system-level events and infrastructure issues
-- Identify scaling opportunities and performance bottlenecks
 
 ### Gateway Logs - Setup and Navigation
 
 **Enable Gateway Log Delivery:**
 
-1. **Navigate to your Gateway resource** in the AWS Console:
-   - Go to Amazon Bedrock AgentCore → Gateways → [Your Gateway Name]
+1. **Navigate to your Gateway resource** from Lab 3 in the AWS Console:
+   - Go to Amazon Bedrock AgentCore → Gateways → **customersupport-gw** (created in Lab 3)
 
 2. **Configure Log Delivery:**
    - In the **Observability** section, find **Log delivery**
    - Click **Add** to create a new log delivery configuration
    - Select **Log type**: `APPLICATION_LOGS`
-   - **Destination log group**: `/aws/vendedlogs/bedrock-agentcore/gateway/APPLICATION_LOGS/`
+   - **Destination log group**: `/aws/vendedlogs/bedrock-agentcore/gateway/APPLICATION_LOGS/customersupport-gw-xxxxxxxxxxxx`. The log group name will include an automatically generated ID suffix (like `customersupport-gw-dcbgswzb5p`) unique to your Gateway resource.
    - Click **Add** to enable log delivery
+
+   ![Gateway Log Delivery Configuration](images/Configure_log_delivery_for_Gateway.png)
 
 3. **Access Gateway Logs in CloudWatch:**
    - Navigate to **CloudWatch** → **Logs** → **Log groups**
-   - Find the log group: `/aws/vendedlogs/bedrock-agentcore/gateway/APPLICATION_LOGS/[YourGatewayName]`
+   - Find the log group: `/aws/vendedlogs/bedrock-agentcore/gateway/APPLICATION_LOGS/customersupport-gw-[auto-generated-ID]`
    - Click to open: **BedrockAgentCoreGateway_ApplicationLogs**
 
 ### Understanding Gateway Log Structure
@@ -341,14 +317,14 @@ Gateway logs capture detailed MCP (Model Context Protocol) operations and tool e
 
 ```json
 {
-  "resource_arn": "arn:aws:bedrock-agentcore:us-east-1:account:gateway/customersupport-gw-ID",
+  "resource_arn": "arn:aws:bedrock-agentcore:<region>:<account-id>:gateway/customersupport-gw-ID",
   "event_timestamp": 1756958992250,
   "body": {
     "id": "2",
     "log": "Received request for tools/call method",
     "isError": false
   },
-  "account_id": "533267284022",
+  "account_id": "<account-id>",
   "request_id": "b2474cdc-b5dd-44b0-876d-8de900414ee3"
 }
 ```
@@ -364,7 +340,7 @@ Gateway logs capture detailed MCP (Model Context Protocol) operations and tool e
 
 ### Gateway MCP Protocol Workflow in Logs
 
-The log snippets reveal the complete MCP protocol interaction flow for tool execution:
+When your customer support agent (Lab 1) needs to use tools like `check_warranty_status` or `web_search` that you configured in Lab 3, the Gateway handles the MCP protocol interactions. Here's the complete flow you'll see in the logs:
 
 **1. Gateway Initialization Phase**:
 ```json
@@ -400,9 +376,9 @@ The log snippets reveal the complete MCP protocol interaction flow for tool exec
 ### Gateway Tool Execution Analysis
 
 **Tool Identification Pattern:**
-- **Tool naming**: `LambdaUsingSDK___[function_name]` format indicates Lambda-backed tools
-- **Target identification**: `ME2UI4BINR` represents the specific Lambda function or MCP target
-- **Operation types**: `check_warranty_status`, `web_search` show different tool capabilities
+- **Tool naming**: `LambdaUsingSDK___[function_name]` format indicates Lambda-backed tools from Lab 3
+- **Target identification**: `ME2UI4BINR` represents the specific Lambda function you deployed 
+- **Operation types**: `check_warranty_status`, `web_search` are the actual tools your customer support agent uses
 
 **Performance Timing Analysis:**
 From the timestamps, you can calculate tool execution times:
@@ -435,11 +411,11 @@ From the timestamps, you can calculate tool execution times:
 ### Navigate to All Log Types
 
 1. **Open CloudWatch Console** → **Logs** → **Log groups**
-2. **Search patterns:**
-   - Memory: `/aws/vendedlogs/bedrock-agentcore/memory/`
-   - Runtime: `/aws/bedrock-agentcore/runtimes/`
-   - Gateway: `/aws/vendedlogs/bedrock-agentcore/gateway/`
-   - Filter by your specific resource identifiers
+2. **Search patterns for your AgentCore resources:**
+   - Memory: `/aws/vendedlogs/bedrock-agentcore/memory/APPLICATION_LOGS/CustomerSupportMemory-[auto-generated-ID]`
+   - Runtime: `/aws/bedrock-agentcore/runtimes/customer_support_agent-DEFAULT`
+   - Gateway: `/aws/vendedlogs/bedrock-agentcore/gateway/APPLICATION_LOGS/customersupport-gw-[auto-generated-ID]`
+   - Each log group includes the resource name plus an automatically generated unique ID suffix
 3. **Use Log Insights** for advanced querying and time‑range analysis
 
 ### Common Logs Insights Queries
