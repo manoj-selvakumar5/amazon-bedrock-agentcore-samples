@@ -21,7 +21,7 @@ agents:
     bedrock_agentcore:
       agent_id: customer_support_agent-DL7tB3GLHu
       agent_arn: arn:aws:bedrock-agentcore:us-east-1:533267284022:runtime/customer_support_agent-DL7tB3GLHu
-      agent_session_id: 986a2504-4a19-4a26-975d-9a2561619a17
+      agent_session_id: 4e1ce452-56f6-45cd-a294-280fc16fcfb6
     codebuild:
       project_name: bedrock-agentcore-customer_support_agent-builder
       execution_role: arn:aws:iam::533267284022:role/AmazonBedrockAgentCoreSDKCodeBuild-us-east-1-aa96c3a063
@@ -29,6 +29,6 @@ agents:
     authorizer_configuration:
       customJWTAuthorizer:
         allowedClients:
-        - 70f6imuqe835i6r86q3om523rv
-        discoveryUrl: https://cognito-idp.us-east-1.amazonaws.com/us-east-1_aeqHzmQ0f/.well-known/openid-configuration
+        - 1f7uuh4q7som376jlsc0n1nacj
+        discoveryUrl: https://cognito-idp.us-east-1.amazonaws.com/us-east-1_QzZhkiT3a/.well-known/openid-configuration
     oauth_configuration: null
