@@ -178,38 +178,46 @@ Each span includes attributes such as `memory.id`, `session.id`, `event.id`, `ac
 By combining **metrics** (high-level monitoring) and **spans** (operation-level tracing), you gain comprehensive visibility into the behavior and performance of your AgentCore resources.
 
 ---
-
 ## 4.4 AgentCore Observability Logs
 
 CloudWatch Logs capture detailed, time‑stamped events across AgentCore components. These structured JSON logs provide visibility into agent operations, background processing, and system behavior for deep troubleshooting and performance analysis.
 
-Now that you have built a customer support agent system across Labs 1-4—creating a functional customer support agent prototype with local tools (Lab 1), enhancing it with persistent memory for conversation context and personalization (Lab 2), integrating with AgentCore Gateway to centrally manage shared tools and secure authentication (Lab 3), and deploying to AgentCore Runtime for production-ready auto-scaling with observability (Lab 4)—let's explore the detailed logs each component generates to help you monitor and debug your production agent system.
+Now that you have built a customer support agent system across Labs 1-4 with local tools (Lab 1), enhancing it with persistent memory for conversation context and personalization (Lab 2), integrating with AgentCore Gateway to centrally manage shared tools and secure authentication (Lab 3), and deploying to AgentCore Runtime for production-ready auto-scaling with observability (Lab 4)—let's explore the detailed logs each component generates to help you monitor and debug your production agent system.
 
 ### Memory Logs - Setup and Navigation
 
+Memory logs capture the background processing operations that occur when your customer support agent (from Lab 1) stores and retrieves conversation context using the Memory resource you created in Lab 2. These logs provide deep insight into how AgentCore extracts, consolidates, and persists customer preferences and conversation context.
+
 **Enable Memory Log Delivery:**
 
-1. **Navigate to your Memory resource** from Lab 2 in the AWS Console:
-   - Go to Amazon Bedrock AgentCore → Memory → **CustomerSupportMemory** (created in Lab 2)
+1. **Navigate to your Memory resource** from Lab 2:
+   - Go to Amazon Bedrock AgentCore → Memory → **CustomerSupportMemory**
 
 2. **Configure Log Delivery:**
    - In the **Observability** section, find **Log delivery**
-   - Click **Add** to create a new log delivery configuration
-   - Select **Log type**: `APPLICATION_LOGS`
-   - **Destination log group**: `/aws/vendedlogs/bedrock-agentcore/memory/APPLICATION_LOGS/CustomerSupportMemory-xxxxxxxxxxxx`. The log group name will include an automatically generated ID suffix (like `CustomerSupportMemory-WcEhTTFp10`) unique to your Memory resource.
-   - Click **Add** to enable log delivery
-
-   ![Memory Log Delivery Configuration](images/Configure_log_delivery_for_Memory.png)
+   - Click **Add** → Select **Log type**: `APPLICATION_LOGS`
+   - **Destination log group**: `/aws/vendedlogs/bedrock-agentcore/memory/APPLICATION_LOGS/CustomerSupportMemory-xxxxxxxxxxxx`
+   
+   > The log group name includes an automatically generated ID suffix (like `CustomerSupportMemory-WcEhTTFp10`) unique to your Memory resource.
 
 3. **Access Memory Logs in CloudWatch:**
    - Navigate to **CloudWatch** → **Logs** → **Log groups**
-   - Find the log group: `/aws/vendedlogs/bedrock-agentcore/memory/APPLICATION_LOGS/CustomerSupportMemory-[auto-generated-ID]`
+   - Find: `/aws/vendedlogs/bedrock-agentcore/memory/APPLICATION_LOGS/CustomerSupportMemory-[auto-generated-ID]`
    - Click to open: **BedrockAgentCoreMemory_ApplicationLogs**
 
-### Understanding Memory Log Structure
+### Understanding Memory Processing
 
-Memory logs provide detailed insight into background processing operations. Each log entry contains structured JSON with the following key fields:
+When customers interact with your agent, AgentCore Memory processes conversations through a **three-phase pipeline**:
 
+**1. Extraction** → Convert conversation events to structured memories  
+**2. Consolidation** → Merge new memories with existing ones to avoid duplication  
+**3. Storage** → Persist consolidated memories to the memory store
+
+Each phase generates detailed logs that help you monitor performance, debug issues, and understand memory behavior.
+
+### Memory Log Structure and Analysis
+
+**Sample Memory Log Entry:**
 ```json
 {
   "resource_arn": "arn:aws:bedrock-agentcore:<region>:<account-id>:memory/CustomerSupportMemory-ID",
@@ -227,94 +235,104 @@ Memory logs provide detailed insight into background processing operations. Each
 ```
 
 **Key Fields Explained:**
-- **resource_arn** - Memory resource identifier for filtering logs across multiple memory instances
-- **event_timestamp** - Timestamp for when the memory operation occured
-- **memory_strategy_id** - Strategy type (`CustomerPreferences`, `CustomerSupportSemantic`) to track different memory processing approaches
-- **namespace** - Organizational structure showing customer/context segmentation (`support/customer/{customer_id}/{type}`)
-- **actor_id** - Customer or user identifier for session correlation
-- **session_id** - Links memory operations to specific conversations for end‑to‑end tracing
-- **body.log** - Human‑readable operation description for debugging
-- **body.requestId** - Correlation ID linking memory operations to agent requests
-- **body.isError** - Boolean flag for filtering successful vs failed operations
 
-### Memory Processing Workflow in Logs
+| Field               | Description                                                                                   |
+|---------------------|-----------------------------------------------------------------------------------------------|
+| **resource_arn**    | ARN of the Memory resource—useful for filtering and distinguishing events across multiple memory resources. |
+| **event_timestamp** | Timestamp (in milliseconds) indicating when the memory operation occurred.              |
+| **memory_strategy_id** | Identifier of the memory strategy (e.g., `CustomerPreferences`, `CustomerSupportSemantic`)—lets you distinguish processing logic. |
+| **namespace**       | Logical path (such as support/customer/{customer_id}/{type}) that organizes and separates memory data for each context, user, session, or memory type. |
+| **actor_id**        | Identifier of the user or agent actor (e.g., `customer_001`) that helps attribute operations to individuals or systems.    |
+| **session_id**      | Identifier linking memory operations to a specific conversation session, enabling end-to-end traceability. |
+| **body.log**        | Human-readable log message describing the current operation step—useful during extraction or consolidation. |
+| **body.requestId**  | Unique identifier correlating related memory operations—useful for tracing a single memory workflow. |
+| **body.isError**    | Boolean flag (`true` or `false`) indicating whether the operation encountered an error.         |
 
-When your agent (from Lab 1) interacts with customers and stores conversation context using the Memory system (from Lab 2), you'll see this complete processing pipeline in the logs:
 
-**1. Extraction Phase** (Converting conversations to memories):
+
+### Complete Memory Processing Example
+
+Let's trace a real memory processing workflow. When `customer_001` interacts with your agent about laptop preferences, you'll see this complete sequence in CloudWatch Logs:
+
 ```json
-{"log": "Processing extraction input"}          // Starting extraction
-{"log": "Starting to process Preference strategies"}  // Strategy-specific processing
-{"log": "Extraction completed in 1674 ms"}     // Timing for performance analysis
-{"log": "Extracted 1 memories"}                // Output quantity tracking
+{"log": "Processing extraction input"}
+{"log": "Starting to process Preference strategies."}
+{"log": "Extraction completed in 1674 ms"}
+{"log": "Extracted 1 memories"}
+{"log": "Processing consolidation input"}
+{"log": "Retrieving memories."}
+{"log": "Succeeded to retrieve 2 records."}
+{"log": "1 memories require consolidation."}
+{"log": "Consolidating 2 facts with 3 related memories"}
+{"log": "Succeeded to upsert 1 records."}
+{"log": "Succeeded operation for record id mem-af46dbb9..."}
 ```
 
-**2. Consolidation Phase** (Merging with existing memories):
-```json
-{"log": "Processing consolidation input"}       // Beginning consolidation
-{"log": "Retrieving memories."}                 // Fetching existing memories
-{"log": "Succeeded to retrieve 2 records."}    // Existing memory count
-{"log": "1 memories require consolidation."}   // Processing decision
-{"log": "Consolidating 2 facts with 3 related memories"}  // Merge operation details
-```
+**What This Sequence Reveals:**
 
-**3. Storage Operations** (Updating memory store):
-```json
-{"log": "Performing UPDATE operation for memory."}  // Operation type decision
-{"log": "Succeeded to upsert 1 records."}          // Database operation result
-{"log": "Succeeded operation for record id mem-af46dbb9..."}  // Specific record tracking
-{"log": "Succeeded to update 1 records."}          // Final confirmation
-```
+1. **Extraction Timing**
+   - The log shows `Extraction completed in 1674 ms`.
+   - That's ~1.6s latency for converting the raw conversation into structured memory.
+   - If you consistently saw higher numbers here (e.g., >3000 ms), you'd flag this as a potential bottleneck.
 
-**4. Multiple Strategy Processing** (Parallel memory types):
-- **CustomerPreferences** - Tracks user preferences and settings
-- **CustomerSupportSemantic** - Captures conversation context and technical details
-- Each strategy processes independently with separate timing and results
+2. **New Memory Created**
+   - `Extracted 1 memories` confirms only one new record was generated for this interaction.
+   - This tells you the preference strategy was triggered correctly and produced new data.
 
-### Memory Log Use Cases
+3. **Consolidation Behavior**
+   - Logs show `Succeeded to retrieve 2 records.` and `1 memories require consolidation.`
+   - This means the system correctly pulled existing records and determined overlap, then merged facts (`Consolidating 2 facts with 3 related memories`).
+   - This is critical for **avoiding duplication** and ensuring the agent doesn't keep multiple conflicting memories for the same customer.
 
-**1. Memory Performance Monitoring:**
-- Track extraction and consolidation timing to identify processing bottlenecks
-- Monitor memory creation rates and storage operation success patterns
-- Analyze memory strategy efficiency across different customer types
+4. **Successful Storage**
+   - `Succeeded to upsert 1 records.` followed by a record ID confirms the memory store was updated.
+   - That's the final confirmation the lifecycle completed successfully.
 
-**2. Memory Processing Debugging:**
-- Debug failed extraction or consolidation operations using error flags
-- Trace memory record lifecycle from creation to storage completion  
-- Verify proper memory strategy execution and decision logic
+**What This Observation Tells You**
 
-**3. Memory Usage Analytics:**
-- Track memory growth patterns across customer segments and namespaces
-- Analyze memory consolidation frequency and effectiveness
-- Identify opportunities for memory strategy optimization or tuning
+- **Performance:** Extraction + consolidation pipeline took ~1.6s, which is reasonable but worth monitoring under load.
+- **Correctness:** Strategies (`CustomerPreferences`) are firing as expected, producing new memory records.
+- **Data Integrity:** Consolidation ensures that the memory store stays consistent and avoids bloat.
+- **Traceability:** Because you have the `session_id` and `requestId`, you can trace this specific customer's memory lifecycle end-to-end.
+
 
 
 
 ### Gateway Logs - Setup and Navigation
 
+Gateway logs capture the MCP (Model Context Protocol) operations that occur when your customer support agent (from Lab 1) uses the centralized tools you configured in Lab 3. These logs provide detailed insight into how AgentCore Gateway manages tool discovery, execution, and performance for the `check_warranty_status`, `web_search`, and `get_product_info` tools.
+
 **Enable Gateway Log Delivery:**
 
-1. **Navigate to your Gateway resource** from Lab 3 in the AWS Console:
-   - Go to Amazon Bedrock AgentCore → Gateways → **customersupport-gw** (created in Lab 3)
+1. **Navigate to your Gateway resource** from Lab 3:
+   - Go to Amazon Bedrock AgentCore → Gateways → **customersupport-gw**
 
 2. **Configure Log Delivery:**
    - In the **Observability** section, find **Log delivery**
-   - Click **Add** to create a new log delivery configuration
-   - Select **Log type**: `APPLICATION_LOGS`
-   - **Destination log group**: `/aws/vendedlogs/bedrock-agentcore/gateway/APPLICATION_LOGS/customersupport-gw-xxxxxxxxxxxx`. The log group name will include an automatically generated ID suffix (like `customersupport-gw-dcbgswzb5p`) unique to your Gateway resource.
-   - Click **Add** to enable log delivery
-
-   ![Gateway Log Delivery Configuration](images/Configure_log_delivery_for_Gateway.png)
+   - Click **Add** → Select **Log type**: `APPLICATION_LOGS`
+   - **Destination log group**: `/aws/vendedlogs/bedrock-agentcore/gateway/APPLICATION_LOGS/customersupport-gw-xxxxxxxxxxxx`
+   
+   > The log group name includes an automatically generated ID suffix (like `customersupport-gw-dcbgswzb5p`) unique to your Gateway resource.
 
 3. **Access Gateway Logs in CloudWatch:**
    - Navigate to **CloudWatch** → **Logs** → **Log groups**
-   - Find the log group: `/aws/vendedlogs/bedrock-agentcore/gateway/APPLICATION_LOGS/customersupport-gw-[auto-generated-ID]`
+   - Find: `/aws/vendedlogs/bedrock-agentcore/gateway/APPLICATION_LOGS/customersupport-gw-[auto-generated-ID]`
    - Click to open: **BedrockAgentCoreGateway_ApplicationLogs**
 
-### Understanding Gateway Log Structure
+### Understanding Gateway Processing
 
-Gateway logs capture detailed MCP (Model Context Protocol) operations and tool execution flows. Each log entry contains structured JSON with the following key fields:
+When customers interact with your agent, AgentCore Gateway processes tool requests through a **four-phase MCP protocol**:
 
+**1. Initialization** → Establish MCP connection with the gateway  
+**2. Discovery** → Enumerate available tools for the agent  
+**3. Execution** → Invoke specific tools (warranty check, web search, etc.)  
+**4. Correlation** → Track multiple tool calls within the same session
+
+Each phase generates detailed logs that help you monitor tool performance, debug MCP issues, and understand tool usage patterns.
+
+### Gateway Log Structure and Analysis
+
+**Sample Gateway Log Entry:**
 ```json
 {
   "resource_arn": "arn:aws:bedrock-agentcore:<region>:<account-id>:gateway/customersupport-gw-ID",
@@ -330,122 +348,84 @@ Gateway logs capture detailed MCP (Model Context Protocol) operations and tool e
 ```
 
 **Key Fields Explained:**
-- **resource_arn** - Gateway resource identifier for filtering logs across multiple gateway instances
-- **event_timestamp** - Precise timing for latency analysis and request sequencing
-- **body.id** - Sequential request identifier within the gateway session for tracking operation order
-- **body.log** - Human‑readable operation description detailing MCP protocol interactions
-- **body.isError** - Boolean flag for filtering successful vs failed operations
-- **account_id** - AWS account identifier for multi‑account deployments
-- **request_id** - Unique correlation ID linking gateway operations to agent requests
 
-### Gateway MCP Protocol Workflow in Logs
+| Field               | Description                                                                                   |
+|---------------------|-----------------------------------------------------------------------------------------------|
+| **resource_arn**    | ARN of the Gateway resource—useful for filtering logs across multiple gateway instances. |
+| **event_timestamp** | Timestamp (in milliseconds) indicating when the gateway operation occurred.              |
+| **body.id**         | Sequential request identifier within the gateway session for tracking operation order. |
+| **body.log**        | Human-readable operation description detailing MCP protocol interactions. |
+| **body.isError**    | Boolean flag (`true` or `false`) indicating whether the operation encountered an error. |
+| **account_id**      | AWS account identifier for multi-account deployments. |
+| **request_id**      | Unique correlation ID linking gateway operations to agent requests—enables end-to-end tracing. |
 
-When your customer support agent (Lab 1) needs to use tools like `check_warranty_status` or `web_search` that you configured in Lab 3, the Gateway handles the MCP protocol interactions. Here's the complete flow you'll see in the logs:
 
-**1. Gateway Initialization Phase**:
+### Complete Gateway Processing Example
+
+Let's trace a real tool execution workflow. When a customer asks your agent "Can you check the warranty on my laptop?", you'll see this complete MCP sequence in CloudWatch Logs:
+
 ```json
-{"log": "Started processing request with requestId: 0"}        // Request initiation
-{"log": "Received request for initialize method"}             // MCP initialization
-{"log": "Successfully processed request with requestId: 0"}   // Initialization complete
+{"log": "Started processing request with requestId: 0"}
+{"log": "Received request for initialize method"}
+{"log": "Successfully processed request with requestId: 0"}
+{"log": "Started processing request with requestId: 1"}
+{"log": "Received request for tools/list method"}
+{"log": "Successfully processed request with requestId: 1"}
+{"log": "Started processing request with requestId: 2"}
+{"log": "Received request for tools/call method"}
+{"log": "Executing tool LambdaUsingSDK___check_warranty_status from target ME2UI4BINR"}
+{"log": "Successfully processed request with requestId: 2"}
 ```
 
-**2. Tool Discovery Phase**:
-```json
-{"log": "Started processing request with requestId: 1"}       // Discovery request start
-{"log": "Received request for tools/list method"}             // Tool enumeration
-{"log": "Successfully processed request with requestId: 1"}   // Available tools listed
+**What This Sequence Reveals:**
+
+1. **MCP Initialization**
+   - `Received request for initialize method` confirms proper gateway connection
+   - Request ID 0 shows this is the first operation in the session
+   - Successful completion enables subsequent tool operations
+
+2. **Tool Discovery**
+   - `Received request for tools/list method` shows agent querying available tools
+   - Gateway provides the list of Lab 3 tools: `check_warranty_status`, `web_search`, `get_product_info`
+   - Request ID 1 maintains proper sequencing
+
+3. **Tool Execution**
+   - `Received request for tools/call method` indicates specific tool invocation
+   - `Executing tool LambdaUsingSDK___check_warranty_status` shows which Lab 3 tool is running
+   - `from target ME2UI4BINR` identifies the specific Lambda function you deployed
+
+4. **Performance Tracking**
+   - Request IDs (0→1→2) show proper sequential processing
+   - Timestamp analysis reveals tool execution latency
+   - `Successfully processed` confirms no errors in the MCP protocol
+
+**What This Observation Tells You**
+
+- **Protocol Health:** MCP initialization and discovery working correctly for your Lab 3 setup
+- **Tool Availability:** All workshop tools are properly registered and discoverable
+- **Execution Success:** Customer warranty requests are successfully routed to your Lambda function
+- **Traceability:** Complete request correlation from agent query to tool execution
+
+### Practical Gateway Log Use Cases
+
+**1. Tool Performance Monitoring**
+```
+Target: Identify slow-executing tools in your workshop deployment
+Monitor: Tool execution timing, Lambda cold starts, timeout patterns
+Alert: When tools consistently >2000ms or show increasing latency trends
 ```
 
-**3. Tool Execution Phase** (Core functionality):
-```json
-{"log": "Started processing request with requestId: 2"}       // Tool call initiation
-{"log": "Received request for tools/call method"}             // Tool invocation request
-{"log": "Executing tool LambdaUsingSDK___check_warranty_status from target ME2UI4BINR"}  // Specific tool execution
-{"log": "Successfully processed request with requestId: 2"}   // Tool execution complete
+**2. MCP Protocol Debugging**  
+```
+Target: Verify Lab 3 gateway configuration is working correctly
+Monitor: Initialization success, tool discovery completion, execution patterns
+Debug: Failed tool calls, missing tools, or protocol errors
 ```
 
-**4. Multiple Tool Operations** (Sequential execution):
-```json
-// Request ID 3: web_search tool
-{"log": "Executing tool LambdaUsingSDK___web_search from target ME2UI4BINR"}
-
-// Request ID 4: Another web_search tool 
-{"log": "Executing tool LambdaUsingSDK___web_search from target ME2UI4BINR"}
+**3. Workshop Tool Usage Analytics**
+```
+Target: Understand which Lab 3 tools customers use most frequently  
+Monitor: check_warranty_status vs web_search vs get_product_info usage
+Optimize: Tool caching strategies and Lambda concurrency settings
 ```
 
-### Gateway Tool Execution Analysis
-
-**Tool Identification Pattern:**
-- **Tool naming**: `LambdaUsingSDK___[function_name]` format indicates Lambda-backed tools from Lab 3
-- **Target identification**: `ME2UI4BINR` represents the specific Lambda function you deployed 
-- **Operation types**: `check_warranty_status`, `web_search` are the actual tools your customer support agent uses
-
-**Performance Timing Analysis:**
-From the timestamps, you can calculate tool execution times:
-- **check_warranty_status**: 1,571ms (1756958992303 → 1756958993874)
-- **web_search** (first): 1,194ms (1756959020038 → 1756959021232)  
-- **web_search** (second): 794ms (1756959044840 → 1756959045634)
-
-**Request Correlation:**
-- Each tool call has a unique `request_id` for end‑to‑end tracing
-- Sequential `id` numbers track operation order within the gateway session
-- Successful operations show clear start → execution → completion patterns
-
-### Gateway Log Use Cases
-
-**1. Tool Performance Monitoring:**
-- Identify slow‑executing tools by analyzing timestamp differences
-- Track tool reliability through success/failure patterns
-- Monitor target responsiveness across different Lambda functions
-
-**2. MCP Protocol Debugging:**
-- Verify proper initialization and tool discovery sequences
-- Debug tool execution failures and timeout issues
-- Analyze request ordering and concurrency patterns
-
-**3. Tool Usage Analytics:**
-- Track which tools are most frequently called
-- Analyze tool execution patterns across different sessions
-- Identify opportunities for tool optimization or caching
-
-### Navigate to All Log Types
-
-1. **Open CloudWatch Console** → **Logs** → **Log groups**
-2. **Search patterns for your AgentCore resources:**
-   - Memory: `/aws/vendedlogs/bedrock-agentcore/memory/APPLICATION_LOGS/CustomerSupportMemory-[auto-generated-ID]`
-   - Runtime: `/aws/bedrock-agentcore/runtimes/customer_support_agent-DEFAULT`
-   - Gateway: `/aws/vendedlogs/bedrock-agentcore/gateway/APPLICATION_LOGS/customersupport-gw-[auto-generated-ID]`
-   - Each log group includes the resource name plus an automatically generated unique ID suffix
-3. **Use Log Insights** for advanced querying and time‑range analysis
-
-### Common Logs Insights Queries
-
-```sql
--- Slow runtime responses (>5s)
-fields @timestamp, traceId, sessionId, latency
-| filter @logGroup like /bedrock-agentcore\/runtimes/ and latency > 5000
-| sort @timestamp desc
-| limit 20
-```
-
-```sql
--- Memory operation performance
-fields @timestamp, operation, duration, memory_id
-| filter @logGroup like /bedrock-agentcore\/memory/ and operation in ["CreateEvent","RetrieveMemoryRecords"]
-| stats avg(duration), max(duration) by operation
-```
-
-```sql
--- Gateway tool execution overview
-fields @timestamp, toolName, targetExecutionTime
-| filter operation = "CallToolMcp"
-| stats avg(targetExecutionTime), max(targetExecutionTime) by toolName
-| sort avg(targetExecutionTime) desc
-```
-
-### Correlation Keys
-
-All logs and traces include shared identifiers for end‑to‑end analysis:
-- **traceId** – Correlates logs with GenAI Observability traces  
-- **sessionId** – Groups requests within the same conversation  
-- **requestId** – Tracks individual requests across components

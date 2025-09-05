@@ -1,8 +1,8 @@
-### Step 4: AgentCore Observability
+## Step 4: AgentCore Observability
 
-[**AgentCore Observability**](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/observability.html) delivers powerful monitoring, tracing, and debugging capabilities for AI agents. It automatically emits telemetry in the standardized **OpenTelemetry (OTEL)** format, enabling seamless integration with existing observability tools. Through **Amazon CloudWatch** dashboards, teams gain real-time visibility into agent workflows with filtering, metadata tagging, and step-by-step visualizations of execution paths and intermediate outputs—making it easier to detect and resolve performance bottlenecks or failures. 
+[**AgentCore Observability**](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/observability.html) delivers powerful monitoring, tracing, and debugging capabilities for AI agents. It automatically emits telemetry in the standardized **OpenTelemetry (OTEL)** format, enabling seamless integration with existing observability platforms. Through **Amazon CloudWatch** dashboards, teams gain real-time visibility into agent workflows with filtering, metadata tagging, and step-by-step visualizations of execution paths and intermediate outputs—making it easier to detect and resolve performance bottlenecks or failures. 
 
-All telemetry data such as metrics, logs, and spans are centrally stored in CloudWatch, including a dedicated **Generative AI observability dashboard** that provides trace visualizations, custom span graphs, and error breakdowns. In addition, **AWS CloudTrail** captures and records all API-level interactions across AgentCore components, creating a complete audit trail that supports troubleshooting, security, and compliance.
+All telemetry data such as metrics, logs, and spans are centrally stored in CloudWatch, including a dedicated **Generative AI observability dashboard** that provides trace visualizations, span metrics, and error breakdowns. In addition, **AWS CloudTrail** captures and records all API-level interactions across AgentCore components, creating a complete audit trail that supports troubleshooting, security, and compliance.
 
 This foundation establishes multiple layers of production-grade observability:
 
@@ -13,7 +13,7 @@ This foundation establishes multiple layers of production-grade observability:
 
 Now that your agent is deployed to the **AgentCore Runtime** and integrated with **Memory** and **Gateway**, let’s explore each observability layer in detail.
 
-## 4.1 AgentCore's Built-in Observability Dashboard
+### 4.1 AgentCore's Built-in Observability Dashboard
 The CloudWatch GenAI Observability dashboard is the primary view for day-to-day monitoring, offering immediate insights into agent activity, sessions, and traces without requiring additional setup.
 
 By default, AgentCore forwards agent traces to **CloudWatch GenAI Observability**. To view them, open CloudWatch → GenAI Observability → Bedrock AgentCore. From here you can review agent activity, drill into sessions, and open traces for detailed analysis.
@@ -28,7 +28,7 @@ The **Agents view** gives a high-level snapshot of all deployed agents. It’s t
 - **Runtime metrics**: aggregate KPIs for all agents, including session counts, invocations, errors, throttles, and latency trends, displayed with time-series graphs to highlight spikes or anomalies.
 - **Per-agent breakdown**: a detailed table showing sessions, traces, errors, throttles, and P95 span latency for each agent, enabling comparisons across multi-agent deployments.
 
-Together, these views let you track **traffic patterns, error trends, and performance at both the account and individual agent level**, making the Agents view the starting point for monitoring overall agent health.
+These views let you track **traffic patterns, error trends, and performance at both the account and individual agent level**, making the Agents view the starting point for monitoring overall agent health.
 
 
 ### Sessions
@@ -62,7 +62,7 @@ These features enable you to **trace every step of an agent’s request**, pinpo
 
 
 
-## 4.2 AgentCore Observability Metrics
+### 4.2 AgentCore Observability Metrics
 
 AgentCore automatically publishes **built-in observability metrics** for all primitives Runtime, Memory, and Gateway to **Amazon CloudWatch** under the namespace `AWS/Bedrock-AgentCore`. These metrics give you real-time visibility into request activity, latency, error rates, session usage, and performance. You can use them to build dashboards, configure alarms, and analyze trends for production operations.
 
@@ -138,18 +138,16 @@ With these metrics in CloudWatch, you have baseline observability across AgentCo
 
 ## 4.4 AgentCore Observability Logs
 
-CloudWatch Logs capture detailed, time‑stamped events across AgentCore components. These structured JSON logs provide visibility into agent operations, background processing, and system behavior for deep troubleshooting and performance analysis.
-
-Now that you have built a customer support agent system across Labs 1-4 with local tools (Lab 1), enhancing it with persistent memory for conversation context and personalization (Lab 2), integrating with AgentCore Gateway to centrally manage shared tools and secure authentication (Lab 3), and deploying to AgentCore Runtime for production-ready auto-scaling with observability (Lab 4)—let's explore the detailed logs each component generates to help you monitor and debug your production agent system.
+CloudWatch Logs capture detailed, time‑stamped events across AgentCore components. These structured JSON logs provide visibility into agent operations, background processing, and system behavior for deep troubleshooting and performance analysis. Let's explore the detailed logs each component generates to help you monitor and debug your production agent system.
 
 ### Memory Logs - Setup and Navigation
 
-Memory logs capture the background processing operations that occur when your customer support agent (from Lab 1) stores and retrieves conversation context using the Memory resource you created in Lab 2. These logs provide deep insight into how AgentCore extracts, consolidates, and persists customer preferences and conversation context.
+AgentCore Memory logs capture the background processing operations that occur when your customer support agent stores and retrieves conversation context using the Memory resource you created in Lab 2. These logs provide deep insight into how AgentCore Memory extracts, consolidates, and persists customer preferences and conversation context.
 
 **Enable Memory Log Delivery:**
 
 1. **Navigate to your Memory resource** from Lab 2:
-   - Go to Amazon Bedrock AgentCore → Memory → **CustomerSupportMemory**
+   - Go to Amazon Bedrock AgentCore → Memory → **CustomerSupportMemory** (Memory resource)
 
 2. **Configure Log Delivery:**
    - In the **Observability** section, find **Log delivery**
@@ -163,7 +161,7 @@ Memory logs capture the background processing operations that occur when your cu
    - Find: `/aws/vendedlogs/bedrock-agentcore/memory/APPLICATION_LOGS/CustomerSupportMemory-[auto-generated-ID]`
    - Click to open: **BedrockAgentCoreMemory_ApplicationLogs**
 
-### Understanding Memory Processing
+### Memory Processing
 
 When customers interact with your agent, AgentCore Memory processes conversations through a **three-phase pipeline**:
 
@@ -277,7 +275,7 @@ Gateway logs capture the MCP (Model Context Protocol) operations that occur when
    - Find: `/aws/vendedlogs/bedrock-agentcore/gateway/APPLICATION_LOGS/customersupport-gw-[auto-generated-ID]`
    - Click to open: **BedrockAgentCoreGateway_ApplicationLogs**
 
-### Understanding Gateway Processing
+### Gateway Processing
 
 When customers interact with your agent, AgentCore Gateway processes tool requests through a **four-phase MCP protocol**:
 
