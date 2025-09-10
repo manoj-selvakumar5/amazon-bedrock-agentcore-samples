@@ -416,6 +416,16 @@ Resources:
               - Effect: Allow
                 Action:
                   - application-signals:StartDiscovery
+                  - application-signals:BatchGetServiceLevelObjectiveBudgetReport
+                  - application-signals:GetService
+                  - application-signals:GetServiceLevelObjective
+                  - application-signals:ListServiceLevelObjectives
+                  - application-signals:ListServices
+                  - application-signals:ListServiceDependencies
+                  - application-signals:ListServiceDependents
+                  - application-signals:ListServiceOperations
+                  - application-signals:EnableTransactionSearch
+                  - application-signals:ListObservedEntities
                   - logs:PutLogEvents
                   - logs:FilterLogEvents                  
                   - logs:DescribeLogGroups
@@ -434,12 +444,35 @@ Resources:
                   - logs:GetLogRecord
                   - logs:TestMetricFilter
                   - logs:PutMetricFilter
+                  - logs:PutDeliverySource
+                  - logs:PutDeliveryDestination
+                  - logs:CreateDelivery
+                  - logs:PutDeliveryDestinationPolicy
+                  - logs:GetDeliverySource
+                  - logs:GetDeliveryDestination
+                  - logs:GetDelivery
+                  - logs:ListDeliveries
+                  - logs:DeleteDelivery
+                  - logs:AssociateKmsKey
+                  - logs:DisassociateKmsKey
+                  - logs:TagLogGroup
+                  - logs:UntagLogGroup
+                  - logs:ListTagsLogGroup
                   - xray:GetSamplingRules
                   - xray:GetSamplingTargets
                   - xray:GetSamplingTargets
                   - xray:GetSamplingStatisticSummaries
                   - xray:PutTelemetryRecords
                   - xray:PutTraceSegments
+                  - xray:UpdateTraceSegmentDestination
+                  - xray:GetTraceSegmentDestination
+                  - xray:UpdateIndexingRule
+                  - xray:GetIndexingRule
+                  - xray:GetTraceGraph
+                  - xray:GetTraceSummaries
+                  - xray:BatchGetTraces
+                  - xray:GetServiceGraph
+                  - xray:GetTimeSeriesServiceStatistics
                   - cloudwatch:GetMetricData
                   - cloudwatch:GetMetricStatistics
                   - cloudwatch:ListMetrics
@@ -474,6 +507,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - bedrock-agentcore:PutLogEvents
+                  - bedrock-agentcore:AllowVendedLogDeliveryForResource
                 Resource: "arn:aws:bedrock-agentcore:*:*:memory/*"
 
         - PolicyName: agentcore-gateway-logs-access
@@ -483,6 +517,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - bedrock-agentcore:PutLogEvents
+                  - bedrock-agentcore:AllowVendedLogDeliveryForResource
                 Resource: "arn:aws:bedrock-agentcore:*:*:gateway/*"
                 
         - PolicyName: agentcore-identity-access

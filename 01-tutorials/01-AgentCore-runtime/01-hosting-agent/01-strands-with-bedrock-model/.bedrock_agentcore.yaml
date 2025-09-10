@@ -1,0 +1,30 @@
+default_agent: strands_claude_getting_started
+agents:
+  strands_claude_getting_started:
+    name: strands_claude_getting_started
+    entrypoint: /Users/manojs/Documents/Code/amazon-bedrock-agentcore-samples/01-tutorials/01-AgentCore-runtime/01-hosting-agent/01-strands-with-bedrock-model/strands_claude.py
+    platform: linux/arm64
+    container_runtime: docker
+    aws:
+      execution_role: null
+      execution_role_auto_create: true
+      account: '533267284022'
+      region: us-east-1
+      ecr_repository: null
+      ecr_auto_create: true
+      network_configuration:
+        network_mode: PUBLIC
+      protocol_configuration:
+        server_protocol: HTTP
+      observability:
+        enabled: true
+    bedrock_agentcore:
+      agent_id: null
+      agent_arn: null
+      agent_session_id: null
+    codebuild:
+      project_name: null
+      execution_role: null
+      source_bucket: null
+    authorizer_configuration: null
+    oauth_configuration: null
