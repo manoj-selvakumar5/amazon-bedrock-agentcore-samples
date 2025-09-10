@@ -416,6 +416,16 @@ Resources:
               - Effect: Allow
                 Action:
                   - application-signals:StartDiscovery
+                  - application-signals:BatchGetServiceLevelObjectiveBudgetReport
+                  - application-signals:GetService
+                  - application-signals:GetServiceLevelObjective
+                  - application-signals:ListServiceLevelObjectives
+                  - application-signals:ListServices
+                  - application-signals:ListServiceDependencies
+                  - application-signals:ListServiceDependents
+                  - application-signals:ListServiceOperations
+                  - application-signals:EnableTransactionSearch
+                  - application-signals:ListObservedEntities
                   - logs:PutLogEvents
                   - logs:FilterLogEvents                  
                   - logs:DescribeLogGroups
@@ -428,12 +438,66 @@ Resources:
                   - logs:DescribeLogStreams
                   - logs:DeleteLogGroup
                   - logs:DeleteLogStream
+                  - logs:StartQuery
+                  - logs:StopQuery
+                  - logs:GetQueryResults
+                  - logs:GetLogRecord
+                  - logs:TestMetricFilter
+                  - logs:PutMetricFilter
+                  - logs:PutDeliverySource
+                  - logs:PutDeliveryDestination
+                  - logs:CreateDelivery
+                  - logs:PutDeliveryDestinationPolicy
+                  - logs:GetDeliverySource
+                  - logs:GetDeliveryDestination
+                  - logs:GetDelivery
+                  - logs:ListDeliveries
+                  - logs:DeleteDelivery
+                  - logs:AssociateKmsKey
+                  - logs:DisassociateKmsKey
+                  - logs:TagLogGroup
+                  - logs:UntagLogGroup
+                  - logs:ListTagsLogGroup
                   - xray:GetSamplingRules
                   - xray:GetSamplingTargets
                   - xray:GetSamplingTargets
                   - xray:GetSamplingStatisticSummaries
                   - xray:PutTelemetryRecords
                   - xray:PutTraceSegments
+                  - xray:UpdateTraceSegmentDestination
+                  - xray:GetTraceSegmentDestination
+                  - xray:UpdateIndexingRule
+                  - xray:GetIndexingRule
+                  - xray:GetTraceGraph
+                  - xray:GetTraceSummaries
+                  - xray:BatchGetTraces
+                  - xray:GetServiceGraph
+                  - xray:GetTimeSeriesServiceStatistics
+                  - cloudwatch:GetMetricData
+                  - cloudwatch:GetMetricStatistics
+                  - cloudwatch:ListMetrics
+                  - cloudwatch:GetDashboard
+                  - cloudwatch:ListDashboards
+                  - cloudwatch:PutMetricData
+                  - cloudwatch:PutMetricAlarm
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:CreateDashboard
+                  - cloudwatch:PutDashboard
+                  - cloudwatch:DeleteDashboard
+                Resource: "*"
+        - PolicyName: agentcore-dashboard-access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock-agentcore:ListAgents
+                  - bedrock-agentcore:GetAgent
+                  - bedrock-agentcore:ListSessions
+                  - bedrock-agentcore:GetSession
+                  - bedrock-agentcore:ListTraces
+                  - bedrock-agentcore:GetTrace
+                  - bedrock-agentcore:PutLogEvents
                 Resource: "*"
         - PolicyName: agentcore-identity-access
           PolicyDocument:
@@ -469,6 +533,91 @@ Resources:
                   - secretsmanager:UpdateSecret
                   - secretsmanager:TagResource
                   - secretsmanager:UntagResource
+                Resource: "*"
+        - PolicyName: cloudtrail-history-access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudtrail:LookupEvents
+                  - cloudtrail:GetEventSelectors
+                  - cloudtrail:DescribeTrails
+                  - cloudtrail:GetTrailStatus
+                Resource: "*"
+        - PolicyName: cloudtrail-management-access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudtrail:CreateTrail
+                  - cloudtrail:UpdateTrail
+                  - cloudtrail:StartLogging
+                  - cloudtrail:StopLogging
+                  - cloudtrail:PutEventSelectors
+                  - cloudtrail:PutInsightSelectors
+                  - cloudtrail:GetInsightSelectors
+                Resource: "arn:aws:cloudtrail:*:*:trail/*"
+        - PolicyName: s3-cloudtrail-access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:CreateBucket
+                  - s3:PutBucketPolicy
+                  - s3:GetBucketPolicy
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:GetBucketLocation
+                Resource:
+                  - "arn:aws:s3:::cloudtrail-*"
+                  - "arn:aws:s3:::cloudtrail-*/*"
+                  - "arn:aws:s3:::aws-cloudtrail-*"
+                  - "arn:aws:s3:::aws-cloudtrail-*/*"
+        - PolicyName: sns-cloudtrail-access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:CreateTopic
+                  - sns:GetTopicAttributes
+                  - sns:SetTopicAttributes
+                  - sns:Subscribe
+                  - sns:Publish
+                Resource: "arn:aws:sns:*:*:cloudtrail-*"
+        - PolicyName: kms-cloudtrail-access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - kms:CreateKey
+                  - kms:CreateAlias
+                  - kms:DescribeKey
+                  - kms:GetKeyPolicy
+                  - kms:PutKeyPolicy
+                  - kms:GenerateDataKey
+                  - kms:Decrypt
+                Resource:
+                  - "arn:aws:kms:*:*:key/*"
+                  - "arn:aws:kms:*:*:alias/cloudtrail-*"
+        - PolicyName: resource-tagging-access
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - tag:GetResources
+                  - tag:TagResources
+                  - tag:UntagResources
+                  - tag:GetTagKeys
+                  - tag:GetTagValues
                 Resource: "*"
 
 
@@ -653,7 +802,7 @@ Resources:
                 Effect: Allow
                 Action:
                   - bedrock-agentcore:GetWorkloadAccessToken
-                  - bedrock-agentcore:GetWoFrkloadAccessTokenForJWT
+                  - bedrock-agentcore:GetWorkloadAccessTokenForJWT
                   - bedrock-agentcore:GetWorkloadAccessTokenForUserId
                 Resource:
                   - !Sub arn:aws:bedrock-agentcore:${AWS::Region}:${AWS::AccountId}:workload-identity-directory/default
