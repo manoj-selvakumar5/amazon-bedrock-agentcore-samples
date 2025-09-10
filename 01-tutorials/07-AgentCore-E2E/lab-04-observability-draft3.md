@@ -361,4 +361,158 @@ Let's trace a real tool execution workflow. When a customer asks your agent "Can
 - **Tool Availability:** All workshop tools are properly registered and discoverable
 - **Execution Success:** Customer warranty requests are successfully routed to your Lambda function
 
+## 4.5 AWS CloudTrail Audit Logging
+
+AWS CloudTrail provides comprehensive audit logging for AgentCore API operations, creating an immutable record of who performed what actions, when, and from where. CloudTrail automatically captures the last 90 days of management events for your AWS account, including all AgentCore resource creation, updates, and configuration changes from your workshop activities.
+
+CloudTrail complements the existing observability layers by adding the security and compliance dimension—tracking not just how your agents perform, but who manages them and how they're configured. This audit trail is essential for production environments where you need to demonstrate compliance, investigate security incidents, or troubleshoot configuration issues.
+
+### 4.5.1 Accessing CloudTrail Event History
+
+CloudTrail Event History is available immediately with no setup required. It provides a console-based view of recent API activity across your AWS account.
+
+**Navigate to AgentCore Events:**
+
+1. **Open the CloudTrail Console**
+   - Navigate to **CloudTrail** in the AWS Console
+   - Select **Event history** from the left navigation panel
+
+2. **Filter for AgentCore Activity**
+   - Clear the default "Read only = false" filter by clicking the **X**
+   - Click **Add filter** → Select **Event source**
+   - Enter: `bedrock-agentcore.amazonaws.com`
+   - Click **Apply**
+
+3. **Review Your Workshop Activities**
+   - You will see AgentCore API calls from Labs 2-4
+   - Events are listed with the most recent first
+   - Each row shows the event name, time, user, and affected resources
+
+### 4.5.2 Tracking Your Workshop Activities
+
+The Event History will show a complete record of your workshop progress. Here's what events correspond to each lab:
+
+| Lab | AgentCore Events | What Happened | Resources Created |
+|-----|------------------|---------------|------------------|
+| **Lab 2** | `CreateMemory`, `UpdateMemory` | Created AgentCore Memory for customer preferences | `CustomerSupportMemory-xxxxx` |
+| **Lab 3** | `CreateGateway`, `CreateGatewayTarget` | Set up shared tools via AgentCore Gateway | `customersupport-gw-xxxxx` |
+| **Lab 4** | `CreateRuntime`, `UpdateRuntime` | Deployed agent to AgentCore Runtime | `customer_support_agent-xxxxx` |
+
+**Additional Events You Might See:**
+- `GetMemory`, `ListMemories` - Memory resource queries
+- `GetGateway`, `ListGateways` - Gateway resource queries  
+- `GetRuntime`, `ListRuntimes` - Runtime resource queries
+- `InvokeMcp` - Gateway tool invocations (if data events enabled)
+
+### 4.5.3 Understanding Event Details
+
+Click any event to open the detailed view and examine the complete API call record:
+
+**Key Fields Explained:**
+
+- **Event Time**: When the operation occurred (UTC or local timezone)
+- **User Identity**: Your IAM user or role that performed the action
+  - Shows the exact AWS principal responsible
+  - Includes session context for assumed roles
+- **Event Source**: Confirms `bedrock-agentcore.amazonaws.com`
+- **Event Name**: Specific API operation (e.g., `CreateGateway`)
+- **AWS Region**: Where the operation was performed
+- **Source IP Address**: Origin of the API call
+- **Request Parameters**: Input data for the API call
+  - Resource names, configurations, and settings
+  - Sensitive data is automatically redacted
+- **Response Elements**: Output from the API call
+  - Resource ARNs, status codes, creation timestamps
+  - Error messages if the operation failed
+- **Resources**: List of AWS resources affected by the operation
+  - Shows the full ARN of created or modified resources
+
+**Example Event Analysis:**
+
+When you created your Memory resource in Lab 2, CloudTrail recorded:
+- **Who**: Your AWS identity
+- **What**: `CreateMemory` operation
+- **When**: Exact timestamp
+- **Where**: Your AWS region and source IP
+- **Result**: Memory ARN and configuration details
+
+### 4.5.4 Common AgentCore Events to Monitor
+
+Understanding these events helps with both operational awareness and security monitoring:
+
+| Event Name | Description | Use Cases | Security Relevance |
+|------------|-------------|-----------|-------------------|
+| **CreateMemory** | New memory resource created | Track data storage setup | Monitor unauthorized memory creation |
+| **UpdateMemory** | Memory configuration changed | Track policy/strategy updates | Detect config tampering |
+| **DeleteMemory** | Memory resource deleted | Track resource cleanup | Investigate data loss |
+| **CreateGateway** | New gateway established | Monitor tool sharing setup | Track gateway proliferation |
+| **CreateGatewayTarget** | New tool added to gateway | Track tool additions | Monitor tool access expansion |
+| **UpdateGateway** | Gateway configuration changed | Track auth/access updates | Detect security changes |
+| **CreateRuntime** | Agent deployed to production | Monitor production deployments | Track new production agents |
+| **UpdateRuntime** | Runtime configuration changed | Track deployment updates | Monitor production changes |
+| **DeleteRuntime** | Runtime deleted | Track cleanup activities | Investigate service disruptions |
+| **InvokeMcp** | Gateway tool invocation | Usage monitoring (data events) | Track tool usage patterns |
+| **AccessDenied** | Permission failure | IAM troubleshooting | Security alert - blocked access |
+
+### 4.5.5 Quick Troubleshooting with CloudTrail
+
+CloudTrail Event History provides powerful filtering capabilities for rapid troubleshooting:
+
+**Common Troubleshooting Scenarios:**
+
+1. **"Who made this change?"**
+   - Filter by **Resource name** (e.g., your Gateway ID)
+   - Review recent events to see user identity and changes
+
+2. **"When did this resource get created?"**
+   - Filter by **Event name** = `CreateMemory` or `CreateGateway`
+   - Review timestamps to correlate with issues
+
+3. **"Why is my API call failing?"**
+   - Filter by **User name** = your identity
+   - Look for `AccessDenied` events showing permission issues
+
+4. **"What happened during our workshop session?"**
+   - Use **Time range** to focus on your workshop timeframe
+   - Review the sequence of Create/Update operations
+
+**Advanced Filtering:**
+
+- **User name**: Track actions by specific AWS identities
+- **Resource name**: Find all events affecting a specific Memory/Gateway/Runtime
+- **Event name**: Focus on specific operations like `CreateGateway`
+- **Time range**: Narrow down to specific periods
+- **AWS access key**: Track actions by specific credentials
+
+**Export and Analysis:**
+
+- **Download**: Export filtered results as CSV or JSON
+- **Integration**: Import into spreadsheets or analysis tools
+- **Retention**: Save critical events before the 90-day limit
+
+### 4.5.6 Production Considerations
+
+For production AgentCore deployments, consider these CloudTrail enhancements:
+
+**Extended Retention:**
+- Create a CloudTrail trail to store events in S3 beyond 90 days
+- Essential for compliance and long-term security analysis
+
+**Data Events:**
+- Enable data events to capture `InvokeMcp` calls
+- Monitor actual agent usage patterns and tool invocations
+- Be mindful of costs with high-volume agents
+
+**Automated Monitoring:**
+- Configure CloudWatch alarms for critical events
+- Set up SNS notifications for security-relevant events
+- Integrate with SIEM systems for centralized monitoring
+
+**Multi-Account Strategy:**
+- Use organization trails for centralized logging
+- Separate audit logs from operational logs
+- Implement cross-account access controls
+
+CloudTrail provides the audit foundation that makes AgentCore suitable for enterprise production use, ensuring every configuration change and access attempt is permanently recorded for security, compliance, and operational purposes.
+
 
