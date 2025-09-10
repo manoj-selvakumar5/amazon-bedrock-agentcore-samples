@@ -230,6 +230,15 @@ Resources:
               - bedrock-agentcore:GetGateway
               - bedrock-agentcore:*
             Resource: "*"
+          - Sid: AgentCoreLogDeliveryAccess
+            Effect: Allow
+            Action:
+              - bedrock-agentcore:PutLogEvents
+              - bedrock-agentcore:AllowVendedLogDeliveryForResource
+            Resource:
+              - "arn:aws:bedrock-agentcore:*:*:memory/*"
+              - "arn:aws:bedrock-agentcore:*:*:gateway/*"
+              - "arn:aws:bedrock-agentcore:*:*:runtime/*"
 
   LambdaExecutionRole:
     Type: "AWS::IAM::Role"
@@ -467,26 +476,7 @@ Resources:
                   - bedrock-agentcore:PutLogEvents
                 Resource: "*"
 
-        - PolicyName: agentcore-memory-logs-access
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - bedrock-agentcore:PutLogEvents
-                  - bedrock-agentcore:AllowVendedLogDeliveryForResource
-                Resource: "arn:aws:bedrock-agentcore:*:*:memory/*"
 
-        - PolicyName: agentcore-gateway-logs-access
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - bedrock-agentcore:PutLogEvents
-                  - bedrock-agentcore:AllowVendedLogDeliveryForResource
-                Resource: "arn:aws:bedrock-agentcore:*:*:gateway/*"
-                
         - PolicyName: agentcore-identity-access
           PolicyDocument:
             Version: 2012-10-17

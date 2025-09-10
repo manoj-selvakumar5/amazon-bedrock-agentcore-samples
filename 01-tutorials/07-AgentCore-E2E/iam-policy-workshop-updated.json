@@ -1,0 +1,280 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AllReaperSupportedServices",
+            "Action": [
+                "aws-marketplace:Unsubscribe",
+                "aws-marketplace:ViewSubscriptions",
+                "cloudformation:*",
+                "cloudtrail:*",
+                "cloudwatch:*",
+                "cognito-identity:*",
+                "dynamodb:*",
+                "es:*",
+                "events:*",
+                "execute-api:*",
+                "lambda:*",
+                "logs:*",
+                "s3:*",
+                "sagemaker:*",
+                "sts:*",
+                "tag:*",
+                "xray:*",
+                "codebuild:*",
+                "cognito-idp:*"
+            ],
+            "Effect": "Allow",
+            "Resource": "*"
+        },
+        {
+            "Sid": "BedrockAgentCoreReadPermission",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock-agentcore:Get*",
+                "bedrock-agentcore:List*",
+                "bedrock-agentcore:InvokeAgentRuntime",
+                "bedrock-agentcore:ConnectBrowserAutomationStream",
+                "bedrock-agentcore:ConnectBrowserLiveViewStream",
+                "bedrock-agentcore:DeleteBrowser"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "BedrockAgentCoreObservability",
+            "Effect": "Allow",
+            "Action": [
+                "application-signals:StartDiscovery"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "AmazonBedrockReadOnly",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock:Get*",
+                "bedrock:List*",
+                "bedrock:PutUseCaseForModelAccess",
+                "aws-marketplace:ViewSubscriptions",
+                "bedrock:PutModelInvocationLoggingConfiguration"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "EC2Permissions",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:DescribeVpcs",
+                "ec2:DescribeSubnets"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "BedrockPolicies",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock:InvokeModel",
+                "bedrock:InvokeModelWithResponseStream",
+                "bedrock:TagResource",
+                "bedrock:UntagResource"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "BedrockModelSubscriptions",
+            "Effect": "Allow",
+            "Action": [
+                "aws-marketplace:Subscribe",
+                "aws-marketplace:Unsubscribe"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "ForAnyValue:StringEquals": {
+                    "aws-marketplace:ProductId": [
+                        "prod-cx7ovbu5wex7g",
+                        "prod-5oba7y7jpji56",
+                        "prod-4dlfvry4v5hbi",
+                        "b7568428-a1ab-46d8-bab3-37def50f6f6a",
+                        "38e55671-c3fe-4a44-9783-3584906e7cad"
+                    ]
+                }
+            }
+        },
+        {
+            "Condition": {
+                "StringLike": {
+                    "ec2:InstanceType": [
+                        "*6xlarge",
+                        "*8xlarge",
+                        "*10xlarge",
+                        "*12xlarge",
+                        "*16xlarge",
+                        "*18xlarge",
+                        "*24xlarge",
+                        "f1.4xlarge",
+                        "x1*",
+                        "z1*",
+                        "*metal"
+                    ]
+                }
+            },
+            "Resource": [
+                "arn:aws:ec2:*:*:instance/*"
+            ],
+            "Action": "ec2:RunInstances",
+            "Effect": "Deny",
+            "Sid": "DenyXXLInstances"
+        },
+        {
+            "Resource": [
+                "arn:aws:ec2:*:*:*"
+            ],
+            "Action": [
+                "ec2:ModifyReservedInstances",
+                "ec2:PurchaseHostReservation",
+                "ec2:PurchaseReservedInstancesOffering",
+                "ec2:PurchaseScheduledInstances"
+            ],
+            "Effect": "Deny",
+            "Sid": "DontBuyEC2ReservationsPlz"
+        },
+        {
+            "Resource": [
+                "arn:aws:rds:*:*:*"
+            ],
+            "Action": [
+                "rds:PurchaseReservedDBInstancesOffering"
+            ],
+            "Effect": "Deny",
+            "Sid": "DontBuyRDSReservationsPlz"
+        },
+        {
+            "Resource": [
+                "arn:aws:dynamodb:*:*:*"
+            ],
+            "Action": [
+                "dynamodb:PurchaseReservedCapacityOfferings"
+            ],
+            "Effect": "Deny",
+            "Sid": "DontBuyDynamodbReservationsPlz"
+        },
+        {
+            "Sid": "PassRoleToBedrock",
+            "Effect": "Allow",
+            "Action": [
+                "iam:PassRole",
+                "iam:CreateRole",
+                "iam:CreatePolicy",
+                "iam:AttachRolePolicy",
+                "iam:CreateServiceLinkedRole",
+                "iam:PutRolePolicy"
+            ],
+            "Resource": "arn:aws:iam::*:role/*AmazonBedrock*",
+            "Condition": {
+                "StringEquals": {
+                    "iam:PassedToService": [
+                        "bedrock.amazonaws.com"
+                    ]
+                }
+            }
+        },
+        {
+            "Resource": "{{.ParticipantRoleArn}}",
+            "Action": "iam:PassRole",
+            "Effect": "Allow",
+            "Sid": "PassRole"
+        },
+        {
+            "Sid": "BedrockModelAccess",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock:InvokeModel",
+                "bedrock:InvokeModelWithResponseStream",
+                "bedrock:ListFoundationModelAgreementOffers",
+                "bedrock:PutFoundationModelEntitlement",
+                "bedrock:CreateFoundationModelAgreement"
+            ],
+            "Resource": [
+                "arn:aws:bedrock:us-west-2::foundation-model/amazon.titan-embed-text-v1",
+                "arn:aws:bedrock:us-west-2::foundation-model/amazon.titan-embed-text-v2:0",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-7-sonnet-20250219-v1:0",
+                "arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-*"
+            ]
+        },
+        {
+            "Sid": "DenyBedrockModelAccessForOtherModels",
+            "Effect": "Deny",
+            "Action": [
+                "bedrock:InvokeModel",
+                "bedrock:InvokeModelWithResponseStream",
+                "bedrock:ListFoundationModelAgreementOffers",
+                "bedrock:PutFoundationModelEntitlement",
+                "bedrock:CreateFoundationModelAgreement"
+            ],
+            "Resource": [
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-opus-20240229-v1:0",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-haiku-20240307-v1:0",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-4-20250514-v1:0",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-v2:1",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-v2",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-instant-v1",
+                "arn:aws:bedrock:us-west-2::foundation-model/meta*",
+                "arn:aws:bedrock:us-west-2::foundation-model/mistral*",
+                "arn:aws:bedrock:us-west-2::foundation-model/cohere.*",
+                "arn:aws:bedrock:us-west-2::foundation-model/stability*",
+                "arn:aws:bedrock:us-west-2::foundation-model/amazon.titan-image-*",
+                "arn:aws:bedrock:us-west-2::foundation-model/amazon.titan-embed-image-v1"
+            ]
+        },
+        {
+            "Sid": "BedrockAgentCoreFullAccess",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock-agentcore:Create*",
+                "bedrock-agentcore:Update*",
+                "bedrock-agentcore:Delete*",
+                "bedrock-agentcore:AllowVendedLogDeliveryForResource",
+                "bedrock-agentcore:PutLogEvents",
+                "bedrock-agentcore:*Memory*",
+                "bedrock-agentcore:*Gateway*",
+                "bedrock-agentcore:*Runtime*",
+                "bedrock-agentcore:*Trace*",
+                "bedrock-agentcore:*Session*"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "CloudWatchObservabilityAccess",
+            "Effect": "Allow",
+            "Action": [
+                "xray:UpdateTraceSegmentDestination",
+                "xray:GetTraceSegmentDestination",
+                "xray:UpdateIndexingRule",
+                "xray:GetIndexingRule",
+                "logs:PutDeliverySource",
+                "logs:PutDeliveryDestination", 
+                "logs:CreateDelivery",
+                "logs:PutDeliveryDestinationPolicy",
+                "logs:GetDeliverySource",
+                "logs:GetDeliveryDestination",
+                "logs:GetDelivery",
+                "logs:ListDeliveries",
+                "logs:DeleteDelivery",
+                "application-signals:BatchGetServiceLevelObjectiveBudgetReport",
+                "application-signals:GetService",
+                "application-signals:GetServiceLevelObjective",
+                "application-signals:ListServiceLevelObjectives",
+                "application-signals:ListServices",
+                "application-signals:ListServiceDependencies",
+                "application-signals:ListServiceDependents",
+                "application-signals:ListServiceOperations",
+                "application-signals:EnableTransactionSearch",
+                "application-signals:ListObservedEntities"
+            ],
+            "Resource": "*"
+        }
+    ]
+}

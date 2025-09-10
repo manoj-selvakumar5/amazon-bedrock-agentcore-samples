@@ -1,0 +1,334 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "AllReaperSupportedServices",
+            "Comment": "Base workshop permissions for core AWS services used across all labs",
+            "Action": [
+                "aws-marketplace:Unsubscribe",
+                "aws-marketplace:ViewSubscriptions",
+                "cloudformation:*",
+                "cloudtrail:*",
+                "cloudwatch:*",
+                "cognito-identity:*",
+                "dynamodb:*",
+                "es:*",
+                "events:*",
+                "execute-api:*",
+                "lambda:*",
+                "logs:*",
+                "s3:*",
+                "sagemaker:*",
+                "sts:*",
+                "tag:*",
+                "xray:*",
+                "codebuild:*",
+                "cognito-idp:*"
+            ],
+            "Effect": "Allow",
+            "Resource": "*"
+        },
+        {
+            "Sid": "BedrockAgentCoreReadPermission",
+            "Comment": "Basic read access to AgentCore resources - allows viewing existing resources but not creating new ones",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock-agentcore:Get*",
+                "bedrock-agentcore:List*",
+                "bedrock-agentcore:InvokeAgentRuntime",
+                "bedrock-agentcore:ConnectBrowserAutomationStream",
+                "bedrock-agentcore:ConnectBrowserLiveViewStream",
+                "bedrock-agentcore:DeleteBrowser"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "BedrockAgentCoreObservability",
+            "Comment": "Lab 4.1: Enables Transaction Search discovery in CloudWatch GenAI Observability dashboard",
+            "Effect": "Allow",
+            "Action": [
+                "application-signals:StartDiscovery"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "AmazonBedrockReadOnly",
+            "Comment": "Basic Bedrock permissions for model access and marketplace management",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock:Get*",
+                "bedrock:List*",
+                "bedrock:PutUseCaseForModelAccess",
+                "aws-marketplace:ViewSubscriptions",
+                "bedrock:PutModelInvocationLoggingConfiguration"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "EC2Permissions",
+            "Comment": "Required for VPC-related operations in SageMaker and other services",
+            "Effect": "Allow",
+            "Action": [
+                "ec2:DescribeVpcs",
+                "ec2:DescribeSubnets"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "BedrockPolicies",
+            "Comment": "Core Bedrock model invocation and resource tagging permissions",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock:InvokeModel",
+                "bedrock:InvokeModelWithResponseStream",
+                "bedrock:TagResource",
+                "bedrock:UntagResource"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "BedrockModelSubscriptions",
+            "Comment": "Allows subscription to approved foundation models for workshop use",
+            "Effect": "Allow",
+            "Action": [
+                "aws-marketplace:Subscribe",
+                "aws-marketplace:Unsubscribe"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "ForAnyValue:StringEquals": {
+                    "aws-marketplace:ProductId": [
+                        "prod-cx7ovbu5wex7g",
+                        "prod-5oba7y7jpji56",
+                        "prod-4dlfvry4v5hbi",
+                        "b7568428-a1ab-46d8-bab3-37def50f6f6a",
+                        "38e55671-c3fe-4a44-9783-3584906e7cad"
+                    ]
+                }
+            }
+        },
+        {
+            "Comment": "Cost control: Prevents launching expensive EC2 instance types",
+            "Condition": {
+                "StringLike": {
+                    "ec2:InstanceType": [
+                        "*6xlarge",
+                        "*8xlarge",
+                        "*10xlarge",
+                        "*12xlarge",
+                        "*16xlarge",
+                        "*18xlarge",
+                        "*24xlarge",
+                        "f1.4xlarge",
+                        "x1*",
+                        "z1*",
+                        "*metal"
+                    ]
+                }
+            },
+            "Resource": [
+                "arn:aws:ec2:*:*:instance/*"
+            ],
+            "Action": "ec2:RunInstances",
+            "Effect": "Deny",
+            "Sid": "DenyXXLInstances"
+        },
+        {
+            "Comment": "Cost control: Prevents purchasing EC2 reserved instances",
+            "Resource": [
+                "arn:aws:ec2:*:*:*"
+            ],
+            "Action": [
+                "ec2:ModifyReservedInstances",
+                "ec2:PurchaseHostReservation",
+                "ec2:PurchaseReservedInstancesOffering",
+                "ec2:PurchaseScheduledInstances"
+            ],
+            "Effect": "Deny",
+            "Sid": "DontBuyEC2ReservationsPlz"
+        },
+        {
+            "Comment": "Cost control: Prevents purchasing RDS reserved instances",
+            "Resource": [
+                "arn:aws:rds:*:*:*"
+            ],
+            "Action": [
+                "rds:PurchaseReservedDBInstancesOffering"
+            ],
+            "Effect": "Deny",
+            "Sid": "DontBuyRDSReservationsPlz"
+        },
+        {
+            "Comment": "Cost control: Prevents purchasing DynamoDB reserved capacity",
+            "Resource": [
+                "arn:aws:dynamodb:*:*:*"
+            ],
+            "Action": [
+                "dynamodb:PurchaseReservedCapacityOfferings"
+            ],
+            "Effect": "Deny",
+            "Sid": "DontBuyDynamodbReservationsPlz"
+        },
+        {
+            "Sid": "PassRoleToBedrock",
+            "Comment": "Allows creating IAM roles for Bedrock services with restricted scope",
+            "Effect": "Allow",
+            "Action": [
+                "iam:PassRole",
+                "iam:CreateRole",
+                "iam:CreatePolicy",
+                "iam:AttachRolePolicy",
+                "iam:CreateServiceLinkedRole",
+                "iam:PutRolePolicy"
+            ],
+            "Resource": "arn:aws:iam::*:role/*AmazonBedrock*",
+            "Condition": {
+                "StringEquals": {
+                    "iam:PassedToService": [
+                        "bedrock.amazonaws.com"
+                    ]
+                }
+            }
+        },
+        {
+            "Comment": "Allows participant to pass their own role to services",
+            "Resource": "{{.ParticipantRoleArn}}",
+            "Action": "iam:PassRole",
+            "Effect": "Allow",
+            "Sid": "PassRole"
+        },
+        {
+            "Sid": "BedrockModelAccess",
+            "Comment": "Restricted access to specific approved foundation models for workshop use",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock:InvokeModel",
+                "bedrock:InvokeModelWithResponseStream",
+                "bedrock:ListFoundationModelAgreementOffers",
+                "bedrock:PutFoundationModelEntitlement",
+                "bedrock:CreateFoundationModelAgreement"
+            ],
+            "Resource": [
+                "arn:aws:bedrock:us-west-2::foundation-model/amazon.titan-embed-text-v1",
+                "arn:aws:bedrock:us-west-2::foundation-model/amazon.titan-embed-text-v2:0",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-5-haiku-20241022-v1:0",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-7-sonnet-20250219-v1:0",
+                "arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-*"
+            ]
+        },
+        {
+            "Sid": "DenyBedrockModelAccessForOtherModels",
+            "Comment": "Explicitly denies access to expensive or restricted foundation models",
+            "Effect": "Deny",
+            "Action": [
+                "bedrock:InvokeModel",
+                "bedrock:InvokeModelWithResponseStream",
+                "bedrock:ListFoundationModelAgreementOffers",
+                "bedrock:PutFoundationModelEntitlement",
+                "bedrock:CreateFoundationModelAgreement"
+            ],
+            "Resource": [
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-opus-20240229-v1:0",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-3-haiku-20240307-v1:0",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-sonnet-4-20250514-v1:0",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-v2:1",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-v2",
+                "arn:aws:bedrock:us-west-2::foundation-model/anthropic.claude-instant-v1",
+                "arn:aws:bedrock:us-west-2::foundation-model/meta*",
+                "arn:aws:bedrock:us-west-2::foundation-model/mistral*",
+                "arn:aws:bedrock:us-west-2::foundation-model/cohere.*",
+                "arn:aws:bedrock:us-west-2::foundation-model/stability*",
+                "arn:aws:bedrock:us-west-2::foundation-model/amazon.titan-image-*",
+                "arn:aws:bedrock:us-west-2::foundation-model/amazon.titan-embed-image-v1"
+            ]
+        },
+        {
+            "Sid": "BedrockAgentCoreFullAccess",
+            "Comment": "CRITICAL: Full AgentCore permissions required for Labs 2-4 workshop activities",
+            "Effect": "Allow",
+            "Action": [
+                "bedrock-agentcore:Create*",
+                "bedrock-agentcore:Update*", 
+                "bedrock-agentcore:Delete*",
+                "bedrock-agentcore:AllowVendedLogDeliveryForResource",
+                "bedrock-agentcore:PutLogEvents",
+                "bedrock-agentcore:*Memory*",
+                "bedrock-agentcore:*Gateway*", 
+                "bedrock-agentcore:*Runtime*",
+                "bedrock-agentcore:*Trace*",
+                "bedrock-agentcore:*Session*"
+            ],
+            "Resource": "*",
+            "PermissionDetails": {
+                "bedrock-agentcore:Create*": "Lab 2: Create Memory resource for customer preferences | Lab 3: Create Gateway and targets for tool sharing | Lab 4: Create Runtime for agent deployment",
+                "bedrock-agentcore:Update*": "Lab 4: Update resource configurations for observability settings",
+                "bedrock-agentcore:Delete*": "All labs: Clean up resources when needed",
+                "bedrock-agentcore:AllowVendedLogDeliveryForResource": "Lab 4.4: CRITICAL - Enable Memory/Gateway log delivery to CloudWatch (fixes WSParticipantRole permission error)",
+                "bedrock-agentcore:PutLogEvents": "Lab 4.4: Allow components to write logs to CloudWatch",
+                "bedrock-agentcore:*Memory*": "Lab 2: Full access to Memory operations - create CustomerSupportMemory, manage strategies, store/retrieve customer preferences",
+                "bedrock-agentcore:*Gateway*": "Lab 3: Full access to Gateway operations - create customersupport-gw, add tools (warranty, web search, product info), manage targets",
+                "bedrock-agentcore:*Runtime*": "Lab 4: Full access to Runtime operations - deploy customer_support_agent, configure endpoints, manage scaling",
+                "bedrock-agentcore:*Trace*": "Lab 4.1: Access trace data in GenAI Observability dashboard for debugging agent behavior",
+                "bedrock-agentcore:*Session*": "Lab 4.1: Access session data for conversation analysis and monitoring"
+            }
+        },
+        {
+            "Sid": "CloudWatchObservabilityAccess",
+            "Comment": "Lab 4: Comprehensive observability permissions for CloudWatch integration",
+            "Effect": "Allow",
+            "Action": [
+                "xray:UpdateTraceSegmentDestination",
+                "xray:GetTraceSegmentDestination",
+                "xray:UpdateIndexingRule",
+                "xray:GetIndexingRule",
+                "logs:PutDeliverySource",
+                "logs:PutDeliveryDestination",
+                "logs:CreateDelivery", 
+                "logs:PutDeliveryDestinationPolicy",
+                "logs:GetDeliverySource",
+                "logs:GetDeliveryDestination",
+                "logs:GetDelivery",
+                "logs:ListDeliveries",
+                "logs:DeleteDelivery",
+                "application-signals:BatchGetServiceLevelObjectiveBudgetReport",
+                "application-signals:GetService",
+                "application-signals:GetServiceLevelObjective",
+                "application-signals:ListServiceLevelObjectives",
+                "application-signals:ListServices",
+                "application-signals:ListServiceDependencies",
+                "application-signals:ListServiceDependents",
+                "application-signals:ListServiceOperations",
+                "application-signals:EnableTransactionSearch",
+                "application-signals:ListObservedEntities"
+            ],
+            "Resource": "*",
+            "PermissionDetails": {
+                "xray:UpdateTraceSegmentDestination": "Lab 4.1: Configure Transaction Search in CloudWatch GenAI Observability dashboard",
+                "xray:GetTraceSegmentDestination": "Lab 4.1: Retrieve current trace configuration settings",
+                "xray:UpdateIndexingRule": "Lab 4.1: Configure trace indexing rules for improved search performance",
+                "xray:GetIndexingRule": "Lab 4.1: View current trace indexing configuration",
+                "logs:PutDeliverySource": "Lab 4.4: Create log delivery sources for Memory/Gateway components",
+                "logs:PutDeliveryDestination": "Lab 4.4: Configure CloudWatch log group destinations",
+                "logs:CreateDelivery": "Lab 4.4: CRITICAL - Establish log delivery from AgentCore to CloudWatch (enables Memory/Gateway logging)",
+                "logs:PutDeliveryDestinationPolicy": "Lab 4.4: Set permissions for cross-service log delivery",
+                "logs:GetDeliverySource": "Lab 4.4: View configured log sources",
+                "logs:GetDeliveryDestination": "Lab 4.4: View configured log destinations", 
+                "logs:GetDelivery": "Lab 4.4: Check status of log delivery configurations",
+                "logs:ListDeliveries": "Lab 4.4: List all log delivery configurations",
+                "logs:DeleteDelivery": "Lab 4.4: Clean up log delivery configurations when needed",
+                "application-signals:BatchGetServiceLevelObjectiveBudgetReport": "Lab 4.2: Advanced metrics analysis and SLO reporting",
+                "application-signals:GetService": "Lab 4.2: Retrieve service information for agent monitoring", 
+                "application-signals:GetServiceLevelObjective": "Lab 4.2: View configured service level objectives",
+                "application-signals:ListServiceLevelObjectives": "Lab 4.2: List all SLOs for performance monitoring",
+                "application-signals:ListServices": "Lab 4.2: View all services in Application Signals",
+                "application-signals:ListServiceDependencies": "Lab 4.2: Analyze service dependency graphs",
+                "application-signals:ListServiceDependents": "Lab 4.2: View services that depend on AgentCore components",
+                "application-signals:ListServiceOperations": "Lab 4.2: View detailed operation metrics",
+                "application-signals:EnableTransactionSearch": "Lab 4.1: CRITICAL - Enable Transaction Search in GenAI Observability (hands-on activity)",
+                "application-signals:ListObservedEntities": "Lab 4.1: View observed entities in the GenAI dashboard"
+            }
+        }
+    ]
+}
