@@ -1,0 +1,216 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CloudWatchGenAIObservabilityAccess",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:GetMetricData",
+        "cloudwatch:GetMetricStatistics",
+        "cloudwatch:ListMetrics",
+        "cloudwatch:GetDashboard",
+        "cloudwatch:ListDashboards"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AgentCoreObservabilityDashboard",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:ListAgents",
+        "bedrock-agentcore:GetAgent",
+        "bedrock-agentcore:ListSessions",
+        "bedrock-agentcore:GetSession",
+        "bedrock-agentcore:ListTraces",
+        "bedrock-agentcore:GetTrace"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchMetricsAccess",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:PutMetricData",
+        "cloudwatch:GetMetricData",
+        "cloudwatch:GetMetricStatistics",
+        "cloudwatch:ListMetrics",
+        "cloudwatch:PutMetricAlarm",
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:CreateDashboard",
+        "cloudwatch:PutDashboard",
+        "cloudwatch:DeleteDashboard"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AgentCoreResourceManagement",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:CreateMemory",
+        "bedrock-agentcore:UpdateMemory",
+        "bedrock-agentcore:GetMemory",
+        "bedrock-agentcore:ListMemories",
+        "bedrock-agentcore:DeleteMemory",
+        "bedrock-agentcore:CreateGateway",
+        "bedrock-agentcore:UpdateGateway",
+        "bedrock-agentcore:GetGateway",
+        "bedrock-agentcore:ListGateways",
+        "bedrock-agentcore:DeleteGateway",
+        "bedrock-agentcore:CreateGatewayTarget",
+        "bedrock-agentcore:UpdateGatewayTarget",
+        "bedrock-agentcore:DeleteGatewayTarget",
+        "bedrock-agentcore:CreateRuntime",
+        "bedrock-agentcore:UpdateRuntime",
+        "bedrock-agentcore:GetRuntime",
+        "bedrock-agentcore:ListRuntimes",
+        "bedrock-agentcore:DeleteRuntime",
+        "bedrock-agentcore:InvokeMcp"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "MemoryLogsConfiguration",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:PutLogEvents"
+      ],
+      "Resource": "arn:aws:bedrock-agentcore:*:*:memory/*"
+    },
+    {
+      "Sid": "GatewayLogsConfiguration",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock-agentcore:PutLogEvents"
+      ],
+      "Resource": "arn:aws:bedrock-agentcore:*:*:gateway/*"
+    },
+    {
+      "Sid": "CloudWatchLogsAccess",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents",
+        "logs:StartQuery",
+        "logs:StopQuery",
+        "logs:GetQueryResults",
+        "logs:GetLogRecord",
+        "logs:TestMetricFilter",
+        "logs:PutMetricFilter"
+      ],
+      "Resource": [
+        "arn:aws:logs:*:*:log-group:/aws/vendedlogs/bedrock-agentcore/*",
+        "arn:aws:logs:*:*:log-group:/aws/vendedlogs/bedrock-agentcore/*:*"
+      ]
+    },
+    {
+      "Sid": "CloudTrailEventHistoryAccess",
+      "Effect": "Allow",
+      "Action": [
+        "cloudtrail:LookupEvents",
+        "cloudtrail:GetEventSelectors",
+        "cloudtrail:DescribeTrails",
+        "cloudtrail:GetTrailStatus"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudTrailManagement",
+      "Effect": "Allow",
+      "Action": [
+        "cloudtrail:CreateTrail",
+        "cloudtrail:UpdateTrail",
+        "cloudtrail:StartLogging",
+        "cloudtrail:StopLogging",
+        "cloudtrail:PutEventSelectors",
+        "cloudtrail:PutInsightSelectors",
+        "cloudtrail:GetInsightSelectors"
+      ],
+      "Resource": "arn:aws:cloudtrail:*:*:trail/*"
+    },
+    {
+      "Sid": "S3CloudTrailBucketAccess",
+      "Effect": "Allow",
+      "Action": [
+        "s3:CreateBucket",
+        "s3:PutBucketPolicy",
+        "s3:GetBucketPolicy",
+        "s3:PutBucketPublicAccessBlock",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": [
+        "arn:aws:s3:::cloudtrail-*",
+        "arn:aws:s3:::cloudtrail-*/*",
+        "arn:aws:s3:::aws-cloudtrail-*",
+        "arn:aws:s3:::aws-cloudtrail-*/*"
+      ]
+    },
+    {
+      "Sid": "SNSNotificationsForCloudTrail",
+      "Effect": "Allow",
+      "Action": [
+        "sns:CreateTopic",
+        "sns:GetTopicAttributes",
+        "sns:SetTopicAttributes",
+        "sns:Subscribe",
+        "sns:Publish"
+      ],
+      "Resource": "arn:aws:sns:*:*:cloudtrail-*"
+    },
+    {
+      "Sid": "KMSEncryptionForCloudTrail",
+      "Effect": "Allow",
+      "Action": [
+        "kms:CreateKey",
+        "kms:CreateAlias",
+        "kms:DescribeKey",
+        "kms:GetKeyPolicy",
+        "kms:PutKeyPolicy",
+        "kms:GenerateDataKey",
+        "kms:Decrypt"
+      ],
+      "Resource": [
+        "arn:aws:kms:*:*:key/*",
+        "arn:aws:kms:*:*:alias/cloudtrail-*"
+      ]
+    },
+    {
+      "Sid": "IAMRoleManagementForServices",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateRole",
+        "iam:AttachRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:GetRole",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:PassRole"
+      ],
+      "Resource": [
+        "arn:aws:iam::*:role/CloudWatchLogsRole*",
+        "arn:aws:iam::*:role/CloudTrailLogsRole*",
+        "arn:aws:iam::*:role/AgentCoreObservabilityRole*"
+      ]
+    },
+    {
+      "Sid": "ResourceTaggingForObservability",
+      "Effect": "Allow",
+      "Action": [
+        "tag:GetResources",
+        "tag:TagResources",
+        "tag:UntagResources",
+        "tag:GetTagKeys",
+        "tag:GetTagValues"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
