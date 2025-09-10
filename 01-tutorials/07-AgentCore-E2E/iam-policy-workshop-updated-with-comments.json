@@ -52,37 +52,21 @@
             "Resource": "*"
         },
         {
-            "Sid": "AmazonBedrockReadOnly",
-            "Comment": "Basic Bedrock permissions for model access and marketplace management",
+            "Sid": "BedrockBasicAccess",
+            "Comment": "Consolidated Bedrock permissions: basic read/list operations, model invocation, resource tagging, and VPC operations for SageMaker integration",
             "Effect": "Allow",
             "Action": [
                 "bedrock:Get*",
                 "bedrock:List*",
-                "bedrock:PutUseCaseForModelAccess",
-                "aws-marketplace:ViewSubscriptions",
-                "bedrock:PutModelInvocationLoggingConfiguration"
-            ],
-            "Resource": "*"
-        },
-        {
-            "Sid": "EC2Permissions",
-            "Comment": "Required for VPC-related operations in SageMaker and other services",
-            "Effect": "Allow",
-            "Action": [
-                "ec2:DescribeVpcs",
-                "ec2:DescribeSubnets"
-            ],
-            "Resource": "*"
-        },
-        {
-            "Sid": "BedrockPolicies",
-            "Comment": "Core Bedrock model invocation and resource tagging permissions",
-            "Effect": "Allow",
-            "Action": [
                 "bedrock:InvokeModel",
                 "bedrock:InvokeModelWithResponseStream",
+                "bedrock:PutUseCaseForModelAccess",
+                "bedrock:PutModelInvocationLoggingConfiguration",
                 "bedrock:TagResource",
-                "bedrock:UntagResource"
+                "bedrock:UntagResource",
+                "aws-marketplace:ViewSubscriptions",
+                "ec2:DescribeVpcs",
+                "ec2:DescribeSubnets"
             ],
             "Resource": "*"
         },
@@ -108,7 +92,25 @@
             }
         },
         {
+            "Sid": "DenyExpensiveResources",
+            "Comment": "Cost control: Prevents purchasing reserved instances/capacity across EC2, RDS, and DynamoDB services",
+            "Effect": "Deny",
+            "Action": [
+                "ec2:ModifyReservedInstances",
+                "ec2:PurchaseHostReservation",
+                "ec2:PurchaseReservedInstancesOffering",
+                "ec2:PurchaseScheduledInstances",
+                "rds:PurchaseReservedDBInstancesOffering",
+                "dynamodb:PurchaseReservedCapacityOfferings"
+            ],
+            "Resource": "*"
+        },
+        {
+            "Sid": "DenyXXLInstances",
             "Comment": "Cost control: Prevents launching expensive EC2 instance types",
+            "Effect": "Deny",
+            "Action": "ec2:RunInstances",
+            "Resource": "arn:aws:ec2:*:*:instance/*",
             "Condition": {
                 "StringLike": {
                     "ec2:InstanceType": [
@@ -125,49 +127,7 @@
                         "*metal"
                     ]
                 }
-            },
-            "Resource": [
-                "arn:aws:ec2:*:*:instance/*"
-            ],
-            "Action": "ec2:RunInstances",
-            "Effect": "Deny",
-            "Sid": "DenyXXLInstances"
-        },
-        {
-            "Comment": "Cost control: Prevents purchasing EC2 reserved instances",
-            "Resource": [
-                "arn:aws:ec2:*:*:*"
-            ],
-            "Action": [
-                "ec2:ModifyReservedInstances",
-                "ec2:PurchaseHostReservation",
-                "ec2:PurchaseReservedInstancesOffering",
-                "ec2:PurchaseScheduledInstances"
-            ],
-            "Effect": "Deny",
-            "Sid": "DontBuyEC2ReservationsPlz"
-        },
-        {
-            "Comment": "Cost control: Prevents purchasing RDS reserved instances",
-            "Resource": [
-                "arn:aws:rds:*:*:*"
-            ],
-            "Action": [
-                "rds:PurchaseReservedDBInstancesOffering"
-            ],
-            "Effect": "Deny",
-            "Sid": "DontBuyRDSReservationsPlz"
-        },
-        {
-            "Comment": "Cost control: Prevents purchasing DynamoDB reserved capacity",
-            "Resource": [
-                "arn:aws:dynamodb:*:*:*"
-            ],
-            "Action": [
-                "dynamodb:PurchaseReservedCapacityOfferings"
-            ],
-            "Effect": "Deny",
-            "Sid": "DontBuyDynamodbReservationsPlz"
+            }
         },
         {
             "Sid": "PassRoleToBedrock",
@@ -291,76 +251,10 @@
                 "bedrock-agentcore:ListMemoryRecords": "Memory operations: List memory records",
                 "bedrock-agentcore:AllowVendedLogDeliveryForResource": "Lab 4.4: CRITICAL - Enable Memory/Gateway log delivery to CloudWatch (fixes WSParticipantRole permission error)"
             }
-        },
+},
         {
-            "Sid": "CloudWatchObservabilityAccess",
-            "Comment": "FIXED: Lab 4 observability permissions with valid actions only (removed non-existent actions)",
-            "Effect": "Allow",
-            "Action": [
-                "xray:UpdateTraceSegmentDestination",
-                "xray:GetTraceSegmentDestination",
-                "xray:PutTraceSegments",
-                "xray:GetTraceSummaries",
-                "xray:BatchGetTraces",
-                "xray:GetServiceGraph",
-                "logs:PutDeliverySource",
-                "logs:PutDeliveryDestination",
-                "logs:CreateDelivery", 
-                "logs:PutDeliveryDestinationPolicy",
-                "logs:GetDeliverySource",
-                "logs:GetDeliveryDestination",
-                "logs:GetDelivery",
-                "logs:DescribeDeliveries",
-                "logs:DeleteDelivery",
-                "logs:PutLogEvents",
-                "logs:CreateLogGroup",
-                "logs:CreateLogStream",
-                "logs:DescribeLogGroups",
-                "logs:DescribeLogStreams",
-                "logs:GetLogEvents",
-                "application-signals:BatchGetServiceLevelObjectiveBudgetReport",
-                "application-signals:GetService",
-                "application-signals:GetServiceLevelObjective",
-                "application-signals:ListServiceLevelObjectives",
-                "application-signals:ListServices",
-                "application-signals:ListServiceDependencies",
-                "application-signals:ListServiceDependents",
-                "application-signals:ListServiceOperations",
-                "application-signals:ListObservedEntities"
-            ],
-            "Resource": "*",
-            "PermissionDetails": {
-                "xray:UpdateTraceSegmentDestination": "Lab 4.1: Configure Transaction Search in CloudWatch GenAI Observability dashboard",
-                "xray:GetTraceSegmentDestination": "Lab 4.1: Retrieve current trace configuration settings",
-                "xray:PutTraceSegments": "Lab 4.1: Allow AgentCore to send trace data to X-Ray",
-                "xray:GetTraceSummaries": "Lab 4.1: Retrieve trace summaries for observability dashboard",
-                "xray:BatchGetTraces": "Lab 4.1: Get detailed trace information for debugging",
-                "xray:GetServiceGraph": "Lab 4.1: View service dependency graphs in observability",
-                "logs:PutDeliverySource": "Lab 4.4: Create log delivery sources for Memory/Gateway components",
-                "logs:PutDeliveryDestination": "Lab 4.4: Configure CloudWatch log group destinations",
-                "logs:CreateDelivery": "Lab 4.4: CRITICAL - Establish log delivery from AgentCore to CloudWatch (enables Memory/Gateway logging)",
-                "logs:PutDeliveryDestinationPolicy": "Lab 4.4: Set permissions for cross-service log delivery",
-                "logs:GetDeliverySource": "Lab 4.4: View configured log sources",
-                "logs:GetDeliveryDestination": "Lab 4.4: View configured log destinations", 
-                "logs:GetDelivery": "Lab 4.4: Check status of log delivery configurations",
-                "logs:DescribeDeliveries": "Lab 4.4: List all log delivery configurations (FIXED: was ListDeliveries)",
-                "logs:DeleteDelivery": "Lab 4.4: Clean up log delivery configurations when needed",
-                "logs:PutLogEvents": "Lab 4.4: Write log events to CloudWatch (FIXED: moved from bedrock-agentcore)",
-                "logs:CreateLogGroup": "Lab 4.4: Create CloudWatch log groups for AgentCore logs",
-                "logs:CreateLogStream": "Lab 4.4: Create log streams within log groups",
-                "logs:DescribeLogGroups": "Lab 4.4: View available log groups",
-                "logs:DescribeLogStreams": "Lab 4.4: View log streams for analysis",
-                "logs:GetLogEvents": "Lab 4.4: Read log events for troubleshooting",
-                "application-signals:BatchGetServiceLevelObjectiveBudgetReport": "Lab 4.2: Advanced metrics analysis and SLO reporting",
-                "application-signals:GetService": "Lab 4.2: Retrieve service information for agent monitoring", 
-                "application-signals:GetServiceLevelObjective": "Lab 4.2: View configured service level objectives",
-                "application-signals:ListServiceLevelObjectives": "Lab 4.2: List all SLOs for performance monitoring",
-                "application-signals:ListServices": "Lab 4.2: View all services in Application Signals",
-                "application-signals:ListServiceDependencies": "Lab 4.2: Analyze service dependency graphs",
-                "application-signals:ListServiceDependents": "Lab 4.2: View services that depend on AgentCore components",
-                "application-signals:ListServiceOperations": "Lab 4.2: View detailed operation metrics",
-                "application-signals:ListObservedEntities": "Lab 4.1: View observed entities in the GenAI dashboard"
-            }
+            "Sid": "ObservabilityNote",
+            "Comment": "NOTE: CloudWatch observability permissions (logs:*, xray:*, cloudwatch:*, application-signals:*) are provided by wildcards in AllReaperSupportedServices statement above. Lab 4 functionality for CloudWatch Logs, X-Ray tracing, Application Signals, and GenAI Observability dashboard is fully supported without additional explicit permissions."
         }
     ]
 }

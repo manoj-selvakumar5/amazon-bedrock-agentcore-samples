@@ -49,7 +49,7 @@
       "Resource": "*"
     },
     {
-      "Sid": "BedrockFullAccess",
+      "Sid": "BedrockBasicAccess",
       "Effect": "Allow",
       "Action": [
         "bedrock:Get*",
