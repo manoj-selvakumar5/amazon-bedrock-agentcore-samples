@@ -1,0 +1,5 @@
+# The receipts agent's own dependencies, so its pipeline code runs unchanged in this process.
+-r ../receipts-intelligent-document-processing-agent/app/receiptsagent/requirements.txt
+
+# convert_strands_to_adot lives in bedrock_agentcore.evaluation (verified on 1.22.0).
+bedrock-agentcore>=1.22.0,<2.0
