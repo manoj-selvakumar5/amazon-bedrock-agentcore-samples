@@ -309,42 +309,65 @@ def _process(payload, context=None):
         }
 
         cedar_blocked = False
-        if not needs_review:
-            # Try to persist. Cedar may DENY this at the gateway (e.g. total over
-            # the threshold) — a deterministic guardrail independent of the agents
-            # (spec §5.5). If denied, fall back to human_review.
-            save_result = gateway.call_tool_sync(
-                tool_use_id=uuid.uuid4().hex,
-                name=save_name,
-                arguments={
-                    **common,
-                    "subtotal": expense["subtotal"],
-                    "tax": expense["tax"],
-                    "tip": expense["tip"],
-                    "payment_method": expense["payment_method"],
-                    "status": "processed",
-                },
-            )
-            if _is_denied(save_result):
-                cedar_blocked = True
-                needs_review = True
-            else:
-                result = save_result
-                status = "processed"
+        try:
+            if not needs_review:
+                # Try to persist. Cedar may DENY this at the gateway (e.g. total over
+                # the threshold) — a deterministic guardrail independent of the agents
+                # (spec §5.5). If denied, fall back to human_review.
+                save_result = _call_gateway_tool(
+                    gateway=gateway,
+                    semantic_name="save_expense",
+                    resolved_name=save_name,
+                    arguments={
+                        **common,
+                        "subtotal": expense["subtotal"],
+                        "tax": expense["tax"],
+                        "tip": expense["tip"],
+                        "payment_method": expense["payment_method"],
+                        "status": "processed",
+                    },
+                )
+                if _is_denied(save_result):
+                    cedar_blocked = True
+                    needs_review = True
+                else:
+                    result = save_result
+                    status = "processed"
 
-        if needs_review:
-            reason = (
-                "blocked by policy (amount over threshold)"
-                if cedar_blocked
-                else (validation.get("concerns") or "validator routed to review")
+            if needs_review:
+                reason = (
+                    "blocked by policy (amount over threshold)"
+                    if cedar_blocked
+                    else (validation.get("concerns") or "validator routed to review")
+                )
+                result = _call_gateway_tool(
+                    gateway=gateway,
+                    semantic_name="human_review",
+                    resolved_name=review_name,
+                    arguments={**common, "reason": reason},
+                )
+                status = "needs_review"
+        except Exception:
+            _tag_span_outcome(
+                status="error",
+                needs_review=needs_review,
+                cedar_blocked=cedar_blocked,
+                routing=routing,
+                total=expense["total"],
+                extractor_confidence=expense.get("confidence"),
+                validator_confidence=validation.get("confidence"),
             )
-            result = gateway.call_tool_sync(
-                tool_use_id=uuid.uuid4().hex,
-                name=review_name,
-                arguments={**common, "reason": reason},
-            )
-            status = "needs_review"
+            raise
 
+    _tag_span_outcome(
+        status=status,
+        needs_review=needs_review,
+        cedar_blocked=cedar_blocked,
+        routing=routing,
+        total=expense["total"],
+        extractor_confidence=expense.get("confidence"),
+        validator_confidence=validation.get("confidence"),
+    )
     return {
         "status": status,
         "rung": rung,
@@ -358,6 +381,107 @@ def _process(payload, context=None):
         "expense": expense,
         "tool_result": _stringify(result),
     }
+
+
+def _call_gateway_tool(gateway, semantic_name: str, resolved_name: str, arguments: dict):
+    """Call one Gateway tool and emit the semantic tool span used by evaluations.
+
+    Persistence and review are orchestrator-owned MCP calls, not Strands agent tools,
+    so Strands does not trace them automatically. Telemetry is best-effort and must
+    never cause the Gateway call to run twice or change its result/exception behavior.
+    """
+    call_id = uuid.uuid4().hex
+    span = None
+    try:
+        from opentelemetry import trace
+        from opentelemetry.trace import Status, StatusCode
+
+        # start_span captures the active invocation as parent without placing a
+        # telemetry context manager around the business call. Span start/end failures
+        # therefore cannot block the call or replace its real result.
+        span = trace.get_tracer("strands.telemetry.tracer").start_span(f"execute_tool {semantic_name}")
+        span.set_attribute("gen_ai.operation.name", "execute_tool")
+        span.set_attribute("gen_ai.system", "strands-agents")
+        span.set_attribute("gen_ai.tool.name", semantic_name)
+        span.set_attribute("gen_ai.tool.call.id", call_id)
+        span.add_event(
+            "gen_ai.tool.message",
+            {
+                "role": "tool",
+                "content": json.dumps(arguments, default=str),
+                "id": call_id,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 — the real tool call still proceeds
+        log.warning("gateway tool span setup failed for %s: %s", semantic_name, exc)
+        if span is not None:
+            try:
+                span.end()
+            except Exception:  # noqa: BLE001 — telemetry is already unavailable
+                pass
+        span = None
+
+    try:
+        result = gateway.call_tool_sync(tool_use_id=call_id, name=resolved_name, arguments=arguments)
+    except Exception as exc:
+        if span is not None:
+            try:
+                span.set_attribute("gen_ai.tool.status", "error")
+                span.record_exception(exc)
+                span.set_status(Status(StatusCode.ERROR, str(exc)[:256]))
+                span.end()
+            except Exception as telemetry_exc:  # noqa: BLE001 — preserve the original exception
+                log.warning("gateway tool error telemetry failed for %s: %s", semantic_name, telemetry_exc)
+        raise
+
+    if span is not None:
+        denied = _is_denied(result)
+        try:
+            span.set_attribute("gen_ai.tool.status", "error" if denied else "success")
+            span.add_event(
+                "gen_ai.choice",
+                {
+                    "message": json.dumps([{"text": _stringify(result)}]),
+                    "id": call_id,
+                },
+            )
+            span.set_status(Status(StatusCode.ERROR if denied else StatusCode.OK))
+            span.end()
+        except Exception as exc:  # noqa: BLE001 — return the real tool result unchanged
+            log.warning("gateway tool result telemetry failed for %s: %s", semantic_name, exc)
+    return result
+
+
+def _tag_span_outcome(
+    *,
+    status: str,
+    needs_review: bool,
+    cedar_blocked: bool,
+    routing: str,
+    total,
+    extractor_confidence=None,
+    validator_confidence=None,
+) -> None:
+    """Stamp the final receipt outcome on the active invocation span."""
+    try:
+        from opentelemetry import trace
+        from opentelemetry.trace import Status, StatusCode
+
+        span = trace.get_current_span()
+        if span is None or not span.is_recording():
+            return
+        span.set_attribute("receipts.status", status)
+        span.set_attribute("receipts.needs_review", needs_review)
+        span.set_attribute("receipts.cedar_blocked", cedar_blocked)
+        span.set_attribute("receipts.validator.routing", routing)
+        span.set_attribute("receipts.total", total)
+        if extractor_confidence is not None:
+            span.set_attribute("receipts.extractor.confidence", extractor_confidence)
+        if validator_confidence is not None:
+            span.set_attribute("receipts.validator.confidence", validator_confidence)
+        span.set_status(Status(StatusCode.ERROR if status == "error" else StatusCode.OK))
+    except Exception as exc:  # noqa: BLE001 — telemetry is best-effort
+        log.warning("span outcome-tag failed: %s", exc)
 
 
 def _answer_query(user_id: str, question: str) -> dict:
