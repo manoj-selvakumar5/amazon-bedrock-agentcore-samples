@@ -117,19 +117,49 @@ The save span is parented to `receipts.invocation`, reports `gen_ai.tool.status:
 
 **Environment note:** system Python had neither pytest nor ruff, so validation ran from a git-ignored `.venv` in `receipts-idp-evaluation` with pinned `pytest==8.4.2` and `ruff==0.12.12`. No project dependency file changed — `aws-opentelemetry-distro` was already a runtime dependency, so Stage 1 added nothing.
 
-## Known gap, deliberately deferred
+## Gaps closed after review
 
-Outcome attributes are stamped on the success path and on an exception during the write phase. The earlier terminal returns are **not** tagged: missing `s3_uri`, L4 defer, OCR failure, step-down-to-defer, and "extractor did not submit an expense". A defer or OCR failure still produces a trace with `receipts.ladder.*` but no `receipts.status`.
+The review of `f70baf60` raised two items, both now fixed in `9f705dcd`.
 
-Left out on purpose — Stage 1's acceptance is the clean receipt, and widening the change would have made the diff harder to review. It needs doing before a dataset run covers failure cases, because those rows would come back unlabelled. Cheapest fix is to route every terminal return through one tagging helper at the `_process()` boundary.
+**1. Every terminal return is tagged.** Outcome attributes were stamped only on the success path and on an exception during the write phase. The earlier returns produced a trace with `receipts.ladder.*` but no `receipts.status`, so a span-based STP rate would have dropped deferred and failed receipts out of the denominator rather than counting them as non-STP. All five now tag:
 
-Also still open from the Stage 0 read: `parse_rate` reports `1.0` while every pre-parsed line item has `unitPrice: null` and `amount: null`. It counts rows, not field completeness. The LLM recovered the prices from the OCR text, so output was fine, but the metric is misleading and shouldn't be used as a deterministic-parse quality signal.
+| Path | `receipts.status` |
+|---|---|
+| Missing `s3_uri` | `error` |
+| L4 defer | `deferred` |
+| OCR failure | `error` |
+| Step-down to defer | `deferred` |
+| Extractor submitted nothing | `error` |
+
+`_tag_span_outcome` gained defaults for the sparse paths, and `receipts.validator.routing` and `receipts.total` are written only when they have a value, so a deferred receipt does not get a misleading `total: 0`. Span status is `ERROR` for errors and `OK` for a defer, which is not a failure.
+
+**2. `receipts.s3_uri` is stamped.** Distinct from the "missing `s3_uri`" return path above. An evaluator needs the receipt key to tell a real duplicate from two separate purchases that share merchant, date, and amount, and it is the only way to join a trace back to its `ProcessingRuns` row, since `receiptId = hash(s3_uri)`.
+
+Also fixed: the `except Exception: pass` in the span cleanup now logs at debug level. It was clean under the pinned `ruff==0.12.12` but flagged as `S110` by current ruff, which is what CI installs.
+
+## A real bug the verification run exposed
+
+`e3a7fd90`. The first real run failed with `InvalidS3ObjectException` from Textract against a bucket that plainly existed.
+
+`tools/ocr.py` created its client as `boto3.client("textract")` with no region — the only client in the agent that did not pass `region_name=REGION`; KMS, CloudWatch, EventBridge, SQS and AppConfig all do. It therefore used the profile's default region (`us-east-1` here) while the receipt sat in `us-west-2`. Setting `AWS_REGION` does not help, because it does not override a region configured in an AWS profile.
+
+Fixed in `ocr.py` through the config seam, and `capture_trace.py` now also sets `AWS_DEFAULT_REGION` so any unparameterised client follows `--region`. This would affect anyone whose default region differs from where they deployed.
+
+The failed run also served as unplanned proof of the new error tagging on real traffic: `receipts.status=error`, `receipts.s3_uri` present, span status `ERROR`. Exactly the case that previously produced an unlabelled trace.
+
+## Verified again after the fixes
+
+Real run `local-26e754e8b9104a549ec645292b828218`, same fixture, 14 spans, root status `OK`, `execute_tool save_expense` parented to `receipts.invocation` with `gen_ai.tool.status: success` and both content events. Root attributes now include `receipts.s3_uri`, `receipts.validator.routing=AUTO_PERSIST`, `receipts.total=15.9`, and both confidences (97 extractor, 96 validator). `adot.json`: 25 records under one session id.
+
+## Still open
+
+`parse_rate` reports `1.0` while every pre-parsed line item has `unitPrice: null` and `amount: null`. It counts rows, not field completeness. The LLM recovered the prices from the OCR text, so output was fine, but the metric is misleading and should not be used as a deterministic-parse quality signal.
 
 ## Stage 2 plan
 
 No agent changes. Reuse the saved trace, don't re-run the agent per attempt.
 
-1. Take `adot.json` from `local-3dd922dab5e843499d9007830196b654`.
+1. Take `adot.json` from `local-26e754e8b9104a549ec645292b828218`, the post-fix run.
 2. Call `Evaluate` with the three planned evaluators:
    - `Builtin.TrajectoryInOrderMatch`, expected trajectory including `save_expense`
    - `Builtin.GoalSuccessRate`, one assertion
@@ -140,4 +170,4 @@ No agent changes. Reuse the saved trace, don't re-run the agent per attempt.
 
 Worth confirming in the same run: the payload lands as **one session** (25 records, one `session.id`), the custom `receipts.invocation` root is accepted alongside the Strands spans, and the correlated log records are read rather than ignored.
 
-Then Stage 3: the STP + 2,000-rule code-based evaluator tested against the saved spans via `handler.unwrapped`, the four-receipt golden dataset, and the dataset runner. The two gaps above are worth closing before that dataset run — the failure-path tagging especially, since half the golden dataset is failure cases.
+Then Stage 3: the STP + 2,000-rule code-based evaluator tested against the saved spans via `handler.unwrapped`, the four-receipt golden dataset, and the dataset runner. The failure-path tagging that blocked this is now done, so the dataset's failure cases will come back labelled.
