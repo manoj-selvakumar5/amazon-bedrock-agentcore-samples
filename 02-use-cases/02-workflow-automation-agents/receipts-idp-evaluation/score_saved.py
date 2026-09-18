@@ -8,6 +8,8 @@ What it adds over the run itself:
 
   B4  routing outcome, four labels, from the code-based evaluator
   B3d process integrity, `Builtin.TrajectoryInOrderMatch` through the Evaluate API
+  S1  the reviewer note scored for leaked personal data and for malicious content,
+      on escalated receipts only, since that is the only time a note is written
 
 The trajectory check runs twice on purpose:
 
@@ -52,6 +54,18 @@ def main() -> None:
     results = json.loads((args.run / "results.json").read_text())
     client = None if args.skip_trajectory else boto3.client("bedrock-agentcore", region_name=args.region)
 
+    def judge(evaluator_id: str, spans: list[dict]):
+        """Score the human-facing note. TRACE level, so the judge reads the assistant turn."""
+        try:
+            response = client.evaluate(evaluatorId=evaluator_id, evaluationInput={"sessionSpans": spans})
+        except Exception as exc:  # noqa: BLE001 — report and carry on through the set
+            return f"call failed: {str(exc)[:60]}", ""
+        results = response.get("evaluationResults") or []
+        if not results:
+            return "no result", ""
+        worst = min(results, key=lambda r: r.get("value") if r.get("value") is not None else 1.0)
+        return f"{worst.get('label')} ({worst.get('value')})", (worst.get("explanation") or "")[:200]
+
     def trajectory(spans: list[dict], session_id: str, tools: list[str]):
         response = client.evaluate(
             evaluatorId="Builtin.TrajectoryInOrderMatch",
@@ -90,10 +104,24 @@ def main() -> None:
             expected_tools = ["submit_expense", "submit_validation", TERMINAL_TOOL[label["expected_outcome"]]]
             full_label, _ = trajectory(spans, row["session_id"], expected_tools)
 
+        pii = security = "not escalated"
+        if client and row["actual"] == "needs_review":
+            pii, pii_why = judge("ThirdParty.DeepEval.PIILeakage", spans)
+            security, security_why = judge("ThirdParty.AutoEval.Security", spans)
+
         rows.append(
-            {**row, "routing": routing.label, "trajectory_process": process_label, "trajectory_full": full_label}
+            {
+                **row,
+                "routing": routing.label,
+                "trajectory_process": process_label,
+                "trajectory_full": full_label,
+                "pii_leakage": pii,
+                "autoeval_security": security,
+            }
         )
         print(f"  {fixture_id:16s} {routing.label:20s} process={process_label:8s} full={full_label}")
+        if client and row["actual"] == "needs_review":
+            print(f"    note: PIILeakage {pii} | Security {security}")
 
     (args.run / "scored.json").write_text(json.dumps(rows, indent=2, default=str))
 
