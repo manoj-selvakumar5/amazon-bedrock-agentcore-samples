@@ -81,6 +81,9 @@ def main() -> None:
         os.environ.pop(name, None)
     os.environ["AGENTCORE_GATEWAY_URL"] = gateway_url
     os.environ["AWS_REGION"] = args.region
+    # AWS_REGION alone does not override a profile's default region, so any client created
+    # without an explicit region would ignore --region and fail on a cross-Region bucket.
+    os.environ["AWS_DEFAULT_REGION"] = args.region
     if args.model:
         os.environ["AGENT_MODEL_ID"] = args.model
 
