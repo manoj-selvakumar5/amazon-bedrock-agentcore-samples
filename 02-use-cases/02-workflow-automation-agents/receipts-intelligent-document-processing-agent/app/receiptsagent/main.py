@@ -172,11 +172,13 @@ def _process(payload, context=None):
     _tag_span_rung(rung, active["model"])
 
     if not s3_uri:
+        _tag_span_outcome(status="error")
         return {"error": "s3_uri is required", "received": payload}
 
     # L4 — defer: no model call. Queue the receipt for replay and return (spec §6.1).
     if active["defer"]:
         deferred = _defer_receipt(s3_uri, user_id, rung)
+        _tag_span_outcome(status="deferred", needs_review=True, s3_uri=s3_uri)
         return {"status": "deferred", "rung": rung, "deferred": deferred, "needs_review": True, "s3_uri": s3_uri}
 
     reset_state()
@@ -187,6 +189,7 @@ def _process(payload, context=None):
         ocr = analyze_receipt(s3_uri)
     except Exception as exc:
         log.error("OCR failed: %s", exc)
+        _tag_span_outcome(status="error", s3_uri=s3_uri)
         return {"error": f"OCR failed: {exc}", "s3_uri": s3_uri, "rung": rung}
 
     # Deterministic line-item table parse (hybrid: parser first, LLM fallback).
@@ -249,6 +252,7 @@ def _process(payload, context=None):
                     if not nxt_rung or nxt_rung["defer"]:
                         # bottomed out -> defer the receipt (spec §6.1 L4)
                         deferred = _defer_receipt(s3_uri, user_id, run_rung)
+                        _tag_span_outcome(status="deferred", needs_review=True, s3_uri=s3_uri)
                         return {
                             "status": "deferred",
                             "rung": run_rung,
@@ -269,6 +273,7 @@ def _process(payload, context=None):
             _tag_span_rung(rung, run_model)
         expense = get_last_expense()
         if not expense:
+            _tag_span_outcome(status="error", s3_uri=s3_uri)
             return {"error": "extractor did not submit an expense", "rung": rung, "step_downs": step_downs}
 
         # 3) Independent validator agent — a sheddable rung feature (spec §6.1).
@@ -354,6 +359,7 @@ def _process(payload, context=None):
                 cedar_blocked=cedar_blocked,
                 routing=routing,
                 total=expense["total"],
+                s3_uri=s3_uri,
                 extractor_confidence=expense.get("confidence"),
                 validator_confidence=validation.get("confidence"),
             )
@@ -365,6 +371,7 @@ def _process(payload, context=None):
         cedar_blocked=cedar_blocked,
         routing=routing,
         total=expense["total"],
+        s3_uri=s3_uri,
         extractor_confidence=expense.get("confidence"),
         validator_confidence=validation.get("confidence"),
     )
@@ -417,8 +424,8 @@ def _call_gateway_tool(gateway, semantic_name: str, resolved_name: str, argument
         if span is not None:
             try:
                 span.end()
-            except Exception:  # noqa: BLE001 — telemetry is already unavailable
-                pass
+            except Exception as end_exc:  # noqa: BLE001 — telemetry is already unavailable
+                log.debug("gateway tool span cleanup failed for %s: %s", semantic_name, end_exc)
         span = None
 
     try:
@@ -455,14 +462,20 @@ def _call_gateway_tool(gateway, semantic_name: str, resolved_name: str, argument
 def _tag_span_outcome(
     *,
     status: str,
-    needs_review: bool,
-    cedar_blocked: bool,
-    routing: str,
-    total,
+    needs_review: bool = False,
+    cedar_blocked: bool = False,
+    routing: str = "",
+    total=None,
+    s3_uri: str = "",
     extractor_confidence=None,
     validator_confidence=None,
 ) -> None:
-    """Stamp the final receipt outcome on the active invocation span."""
+    """Stamp the final receipt outcome on the active invocation span.
+
+    `receipts.s3_uri` is the receipt this run processed. An evaluator needs it to tell a real
+    duplicate from two separate purchases that share merchant, date, and amount, and it is the
+    only way to join a trace back to its ProcessingRuns row (receiptId = hash(s3_uri)).
+    """
     try:
         from opentelemetry import trace
         from opentelemetry.trace import Status, StatusCode
@@ -471,10 +484,14 @@ def _tag_span_outcome(
         if span is None or not span.is_recording():
             return
         span.set_attribute("receipts.status", status)
+        if s3_uri:
+            span.set_attribute("receipts.s3_uri", s3_uri)
         span.set_attribute("receipts.needs_review", needs_review)
         span.set_attribute("receipts.cedar_blocked", cedar_blocked)
-        span.set_attribute("receipts.validator.routing", routing)
-        span.set_attribute("receipts.total", total)
+        if routing:
+            span.set_attribute("receipts.validator.routing", routing)
+        if total is not None:
+            span.set_attribute("receipts.total", total)
         if extractor_confidence is not None:
             span.set_attribute("receipts.extractor.confidence", extractor_confidence)
         if validator_confidence is not None:
