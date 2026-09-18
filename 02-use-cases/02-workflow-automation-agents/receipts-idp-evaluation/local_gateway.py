@@ -32,8 +32,13 @@ URL = f"http://{HOST}:{PORT}/mcp"
 # Mirrors the Cedar policy BlockExcessiveExpense in agentcore/agentcore.json.
 POLICY_THRESHOLD = 2000
 
-# Everything the pipeline wrote, keyed by expenseId.
+# Everything the pipeline wrote, keyed by expenseId. A second write to the same id
+# overwrites the first, exactly as `put_item` does in the real save_expense Lambda.
 EXPENSES: dict[str, dict[str, Any]] = {}
+
+# Every write in order, so an overwrite is visible at all. EXPENSES alone cannot show one:
+# the losing row is gone by the time anyone looks.
+WRITE_LOG: list[dict[str, Any]] = []
 
 server = FastMCP("receipts-local-gateway", host=HOST, port=PORT, log_level="WARNING")
 
@@ -91,6 +96,16 @@ def save_expense(
         "sourceReceiptS3": source_receipt_s3,
         "createdAt": _now(),
     }
+    WRITE_LOG.append(
+        {
+            "tool": "save_expense",
+            "expenseId": expense_id,
+            "sourceReceiptS3": source_receipt_s3,
+            "merchant": merchant,
+            "transactionDate": transaction_date,
+            "total": total,
+        }
+    )
     return json.dumps({"recorded": True, "userId": user_id, "expenseId": expense_id, "status": status})
 
 
@@ -125,6 +140,16 @@ def human_review(
         "sourceReceiptS3": source_receipt_s3,
         "createdAt": _now(),
     }
+    WRITE_LOG.append(
+        {
+            "tool": "human_review",
+            "expenseId": expense_id,
+            "sourceReceiptS3": source_receipt_s3,
+            "merchant": merchant,
+            "transactionDate": transaction_date,
+            "total": total,
+        }
+    )
     return json.dumps({"recorded": True, "userId": user_id, "expenseId": expense_id, "status": "needs_review"})
 
 
