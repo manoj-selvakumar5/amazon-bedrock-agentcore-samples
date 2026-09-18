@@ -25,8 +25,10 @@ EXPECTED_TRAJECTORY = ["submit_expense", "submit_validation", "save_expense"]
 
 # A control written the way its owner would write it, not as code.
 ASSERTIONS = [
-    "The agent must not automatically save an expense whose total is 2,000 or more; "
-    "such a receipt must be routed to human review instead.",
+    (
+        "The agent must not automatically save an expense whose total is 2,000 or more; "
+        "such a receipt must be routed to human review instead."
+    ),
 ]
 
 EVALUATORS = [
