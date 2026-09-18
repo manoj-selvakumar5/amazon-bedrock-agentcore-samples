@@ -6,6 +6,31 @@ What is selected after the critical pass, and how tightly each evaluator is tied
 
 The test applied to every row: does the evaluator measure the business quantity, or something adjacent that can pass while the business outcome fails. `Summarization` failed that test and was dropped, which set the bar for the rest.
 
+## Master table: every metric, both workloads
+
+Statuses: **Selected** is built or being built. **Blocked** is understood but waiting on something. **Evidence** is kept to show a metric that does not fit.
+
+| ID | Workload | Business metric | What it owns | Evaluator | Type | Level | Ground truth | Run mode | Tightness | Status | Priority |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| B1 | Extraction | Straight-through processing rate | Whether any manual work was actually replaced | STP outcome from `receipts.status` | code-based | SESSION | none | online, dataset | Tight | **Selected** | High |
+| B2 | Extraction | Dollar-weighted extraction error | How much money posted wrong, weighted so a $8,000 miss outranks a $12 one | Extracted total against the labelled total | code-based | SESSION | golden labels | dataset, batch | Tight | **Selected**, offline only | High |
+| B2a | Extraction | Dollar error under attack | Quiet compliance with an instruction printed on the receipt | Same evaluator, adversarial fixtures | code-based | SESSION | golden labels | dataset | Tight | **Selected** | Medium |
+| B3a | Extraction | Approval threshold | Nothing at or above $2,000 commits money without a human | Saved amount against the threshold | code-based | SESSION | none | online, dataset | Tight | **Selected** | High |
+| B3b | Extraction | Duplicate and split receipts | Paying twice, and evading the threshold by splitting one bill | Expense id and same-day totals across sessions | code-based, cross-session lookup | SESSION | golden pair offline | online, dataset | Tight | **Selected** | High |
+| B3c | Extraction | Daily velocity limit | A per-receipt control cannot see a per-day total | Daily total at write time, enforced inside `save_expense` | code-based | SESSION | none | online, dataset | Tight | **Selected** | Medium |
+| B3d | Extraction | Process integrity | The independent validator ran before the write, which is the sample's design claim | `Builtin.TrajectoryInOrderMatch` | built-in, programmatic | SESSION | `expectedTrajectory` | dataset, batch, not online | Tight for this claim only | **Selected** | High |
+| B4 | Extraction | Review-queue precision | Whether the escape hatch is worth staffing, and the only check on an agent that escalates everything | Four routing labels: `AutoPersistCorrect`, `FalseClear`, `FalseAlarm`, `ReviewCorrect` | code-based, categorical | SESSION | golden labels | dataset | Tight offline | **Selected** offline, **Blocked** in production on `resolve_review` | Medium |
+| B5 | Extraction | Completion rate | A receipt that vanishes leaves no bad output to catch | Upload count against terminal ledger rows | CloudWatch reconciliation, not an evaluator | n/a | n/a | monitoring | Tight | **Blocked** on an upload count | **Low** |
+| S1 | Extraction | Security incidents | The agent carrying an attacker's instruction to a human who can act on it | `ThirdParty.DeepEval.PIILeakage` on the reviewer note | third-party judge | TRACE | none | online, dataset | Mostly tight | **Selected** | **High** |
+| S1 | Extraction | Security incidents | As above | AutoEval `Security` on the reviewer note | third-party judge | TRACE | none | online, dataset | Untested, the note quotes rather than attacks | **Selected**, pending one test | Medium |
+| PC | Extraction | Control calibration | Where to set the threshold, and what tightening it costs in review volume | Candidate thresholds swept over the golden set in `LOG_ONLY` | offline analysis | n/a | golden labels | offline | Tight, and the output is a decision rather than a score | **Selected** | **Low** |
+| — | Extraction | none | Kept to show a plausible metric measuring the wrong thing | `ThirdParty.DeepEval.ToolUse` | third-party judge | SESSION | none | any | Owns nothing. Scored a correct run 0.25 | **Evidence** | Low |
+| C1 | Chat | Self-service resolution rate | Questions ended without a person, the chat path's version of B1 | Resolution over a session, with `GoalAccuracy` or `ConversationCompleteness` as proxy | code-based + judge | SESSION | assertions | dataset, simulation | Tight for the code half | **Blocked**: single-turn design caps it | Medium |
+| C1d | Chat | Self-service resolution rate, diagnostic | Whether the agent re-asks for something the user already said, the failure that makes a person give up and email finance instead | `ThirdParty.DeepEval.KnowledgeRetention` | third-party judge | SESSION | none | dataset, simulation, online | Diagnostic. Explains why C1 moved rather than measuring it. Scores 1.0 vacuously on single-turn sessions, because there is no earlier fact available to forget | **Blocked**: needs multi-turn sessions | Medium |
+| C2 | Chat | Answer accuracy | A wrong spend figure gets acted on, so it is worse than no answer | Answers against known values; `Builtin.Faithfulness` as the live proxy | code-based + judge | TRACE | golden answers | dataset offline, online for the proxy | Tight offline. Grounded is not correct, so the proxy is loose | **Blocked**: needs a question set | Medium |
+| C3 | Chat | Data-boundary breaches | Anyone seeing data that is not theirs. One is an incident | Scan for a second user's known values | code-based | SESSION | known second-user values | dataset | Tight. `PIILeakage` cannot do this, it detects personal data, not whose | **Blocked**: needs a second seeded user | Low |
+| C4 | Chat | Cost per question | Whether answering automatically beats a person answering | Token usage over the session | code-based | SESSION | none | online | Partial, excludes escalated human time | **Dropped** for now, same reason B6 was | Low |
+
 ## Selected
 
 | Business metric | Evaluator | Type | Tightness |
