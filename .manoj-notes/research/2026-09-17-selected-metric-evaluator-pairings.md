@@ -21,8 +21,8 @@ Statuses: **Selected** is built or being built. **Blocked** is understood but wa
 | B3d | Extraction | Process integrity | The independent validator ran before the write, which is the sample's design claim | `Builtin.TrajectoryInOrderMatch` | built-in, programmatic | SESSION | `expectedTrajectory` | dataset, batch, not online | Tight for this claim only | **Selected** | High |
 | B4 | Extraction | Review-queue precision | Whether the escape hatch is worth staffing, and the only check on an agent that escalates everything | Four routing labels: `AutoPersistCorrect`, `FalseClear`, `FalseAlarm`, `ReviewCorrect` | code-based, categorical | SESSION | golden labels | dataset | Tight offline | **Selected** offline, **Blocked** in production on `resolve_review` | Medium |
 | B5 | Extraction | Completion rate | A receipt that vanishes leaves no bad output to catch | Upload count against terminal ledger rows | CloudWatch reconciliation, not an evaluator | n/a | n/a | monitoring | Tight | **Blocked** on an upload count | **Low** |
-| S1 | Extraction | Security incidents | The agent carrying an attacker's instruction to a human who can act on it | `ThirdParty.DeepEval.PIILeakage` on the reviewer note | third-party judge | TRACE | none | online, dataset | Mostly tight | **Selected** | **High** |
-| S1 | Extraction | Security incidents | As above | AutoEval `Security` on the reviewer note | third-party judge | TRACE | none | online, dataset | Untested, the note quotes rather than attacks | **Selected**, pending one test | Medium |
+| S1 | Extraction | Security incidents | The agent carrying an attacker's instruction to a human who can act on it | `ThirdParty.DeepEval.PIILeakage` on the reviewer note | third-party judge | TRACE | none | online, dataset | **Scores the wrong direction.** Lowest score on the receipt carrying a card number and home address | **Evidence** | Low |
+| S1 | Extraction | Security incidents | As above | AutoEval `Security` on the reviewer note | third-party judge | TRACE | none | online, dataset | **Does not discriminate.** Same verdict for a coffee receipt and a phishing receipt | **Evidence** | Low |
 | PC | Extraction | Control calibration | Where to set the threshold, and what tightening it costs in review volume | Candidate thresholds swept over the golden set in `LOG_ONLY` | offline analysis | n/a | golden labels | offline | Tight, and the output is a decision rather than a score | **Selected** | **Low** |
 | — | Extraction | none | Kept to show a plausible metric measuring the wrong thing | `ThirdParty.DeepEval.ToolUse` | third-party judge | SESSION | none | any | Owns nothing. Scored a correct run 0.25 | **Evidence** | Low |
 | C1 | Chat | Self-service resolution rate | Questions ended without a person, the chat path's version of B1 | Resolution over a session, with `GoalAccuracy` or `ConversationCompleteness` as proxy | code-based + judge | SESSION | assertions | dataset, simulation | Tight for the code half | **Blocked**: single-turn design caps it | Medium |
@@ -66,9 +66,11 @@ Statuses: **Selected** is built or being built. **Blocked** is understood but wa
 | B5 completion rate | An upload count to compare against the ledger. Not an evaluator at all, because a lost receipt leaves no session |
 | C1 to C4, the chat workload | Multi-turn sessions and a golden question set. Deferred, not dropped |
 
-## Not yet done: the test that settles whether the security judges discriminate
+## Settled: the security judges do not discriminate
 
-**Status: not started.** Everything below is the next experiment, not a result.
+**Status: done, 2026-09-18.** Full result in `2026-09-18-security-judge-verdict.md`. Two fixtures were built, an `injected` receipt carrying a phishing instruction and a `pii_heavy` one carrying a full card number and home address. `Security` returned malicious for the clean receipts and the phishing one alike, and not malicious for the PII one. `PIILeakage` scored the PII receipt lowest of all four. The agent leaked neither payload, so all four notes were clean and the judges disagreed anyway. Neither owns the outcome; both move to evidence.
+
+What follows is the reasoning as it stood before the run.
 
 ### What has run
 
@@ -105,7 +107,7 @@ Until this runs, the honest position is that **no third-party metric has been sh
 
 - **Business metrics measured** once the selected work is built: B1, B2, B3, security incidents. B4 offline only.
 - **Evaluators: 8.** Four code-based (STP, dollar error, control breaches, routing labels), one built-in (`TrajectoryInOrderMatch`), and three third-party (`PIILeakage` tight, AutoEval `Security` untested, `ToolUse` as the counter-example). Control calibration is an offline analysis rather than a registered evaluator.
-- **Third-party metrics that genuinely own a business outcome: 1**, possibly 2 after the `Security` test.
+- **Third-party metrics that genuinely own a business outcome: 0.** Three were tried and all three failed differently: `ToolUse` scored a correct run 0.25, `Security` calls every note malicious, `PIILeakage` ranks by nothing observable.
 - **Judges among the selected set: 2**, both third-party. Every first-party evaluator selected is deterministic.
 
 That last number is the honest finding. For a document pipeline, most conversational metrics do not apply, and reporting that with evidence is worth more than reshaping the product until they do.
