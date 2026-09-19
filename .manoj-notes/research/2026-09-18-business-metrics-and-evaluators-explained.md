@@ -207,7 +207,7 @@ Neither result can be judged without a contrast case. If `Security` also says ma
 
 ---
 
-## The chat metrics, C1 to C4
+## The chat metrics, C1 to C3
 
 Framework 1 was run separately on the conversational path, because it had only ever been given one line.
 
@@ -216,7 +216,6 @@ Framework 1 was run separately on the conversational path, because it had only e
 | C1 | Self-service resolution rate, questions ended without a person | **Capped by the design.** Every question opens its own session with a memoryless agent, so a question needing a follow-up cannot be resolved |
 | C2 | Answer accuracy | Not implemented. Needs a question set with known answers over the seeded expenses |
 | C3 | Data-boundary breaches, anyone seeing data that is not theirs | Not implemented. `PIILeakage` cannot do this: it detects personal data, not whose |
-| C4 | Cost per question | Dropped, for the same reason B6 was |
 
 The point worth keeping from C2: `Builtin.Faithfulness` asks whether the answer matches what the tools returned. An answer can be perfectly grounded and still wrong, if the agent summed the wrong window of rows. **Grounded is not correct**, which is why the live proxy does not replace the labelled check.
 
@@ -226,7 +225,7 @@ The point worth keeping from C2: `Builtin.Faithfulness` asks whether the answer 
 
 | Metric | Reason |
 |---|---|
-| B6 cost per receipt | The largest term, analyst time, is unmeasurable until reviewer decisions come back. A cost number missing its dominant term invites the conclusion that automation is cheap |
+| Cost evaluation, B6 for receipts and C4 for questions | Out of scope. The model tokens are in the trace, and an evaluator was written and then removed. Tokens alone mislead: the escalated path cost about the same as the automated one in tokens, 18,152 against 17,575, while the difference that matters is reviewer time the trace cannot see. Converting either into money needs rates that belong to whoever owns the budget |
 | B7 degraded-volume share | Needs runs on a degraded model rung. Local runs are always on the default rung |
 
-Both remain defined in the earlier notes. They are out of scope, not disproved.
+Both remain defined in the earlier notes, and both survive the swap test as business metrics. They are out of scope, not disproved.
