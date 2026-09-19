@@ -38,7 +38,7 @@ The middle question does the work, applied as a swap test: **state the metric wi
 
 ## 4. Framework 1 applied
 
-**Extraction**, seven metrics survived the swap test.
+**Extraction**, five metrics carried forward. Cost per receipt and degraded-volume share also survive the swap test, but are out of scope: cost is not being evaluated, and the degraded rung cannot be exercised locally.
 
 | | Metric | What it owns |
 |---|---|---|
@@ -47,8 +47,6 @@ The middle question does the work, applied as a swap test: **state the metric wi
 | B3 | Control breach count | The rules an auditor tests. Target zero |
 | B4 | Review-queue precision | Whether the escape hatch is worth staffing |
 | B5 | Completion rate | Receipts that vanish leave no bad output to catch |
-| B6 | Cost per receipt | Whether it beats the clerk it replaced |
-| B7 | Degraded-volume share | How much data came from a fallback model |
 
 **Chat**, run later and separately, because the chat path had only ever been given one line.
 
@@ -57,7 +55,6 @@ The middle question does the work, applied as a swap test: **state the metric wi
 | C1 | Self-service resolution rate |
 | C2 | Answer accuracy |
 | C3 | Data-boundary breaches |
-| C4 | Cost per question |
 
 Things the filter rejected, and why they still matter: `Helpfulness`, `KnowledgeRetention`, `TurnRelevancy` and confidence calibration all presuppose the mechanism. They are Framework 2 diagnostics, not scoreboard metrics.
 
@@ -145,7 +142,7 @@ The pattern: **the deterministic evaluators did the work, and the judges returne
 | `GoalSuccessRate` as a measurement | A probabilistic instrument for a deterministic question, and it returns the same green for "obeyed" and "not applicable" |
 | Velocity enforced by the agent passing a total into the policy | Designed so a step would exist so the trajectory matcher would have a job. The check belongs in the Lambda where it cannot be skipped |
 | A pattern scan for injected content in the note | Misses pure social engineering, which is the more dangerous payload. The control belongs in the design: build the note from validated fields |
-| Cost per receipt, in its partial form | Excludes reviewer time, which dominates the escalated path, so the number invites the conclusion that automation is cheap |
+| Cost evaluation, B6 and C4 | Out of scope. Model tokens are in the trace and an evaluator was written and then removed, because the number people actually want includes reviewer time, and that belongs to whoever owns the budget |
 
 Two of those were cases of forcing the product to fit a metric. Worth keeping visible, because the pull toward metric-chasing showed up even while writing the argument against it.
 
