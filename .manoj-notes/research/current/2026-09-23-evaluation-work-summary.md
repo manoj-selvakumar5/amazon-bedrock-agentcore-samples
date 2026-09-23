@@ -209,6 +209,9 @@ All 79 unit tests in the sample pass. They include tests that the deployed evalu
 ### 4.4 Live tests against the deployed stack
 
 - **User-facing tests:** pipeline, S3 front door, chat identity and IDOR, run ledger, tools, and Cedar. **All pass** after the Cedar fix below: 10 of 10 Cedar tests, 12 of 12 for the rest.
+- **The deployed code-based evaluators, called by AgentCore:** the harness runs the evaluator code in-process, and the online config exercises only the threshold monitor. So the extraction and routing Lambdas had not been invoked by AgentCore. Two checks now cover them:
+  - The Evaluate API on the 9 deployed receipt traces (`out/deployed-00a58b05`): the deployed extraction and routing evaluators gave the same label as the local code on all 18 scores. The two cross-receipt receipts score `FalseClear` when called directly, as expected, because leaving them out is the harness's job, not the evaluator's.
+  - `tests/test_e2e_evaluators_live.py`, 13 cases through the Evaluate API: every label of all three evaluators, the "judged on what it was shown" rule, and a missing label reported as an error. **13 of 13 pass.**
 - **Resilience tests:** ladder flip, the alarm-to-controller loop with its cooldown, and the L4 drain. **4 passed, 1 skipped by design**; the live Bedrock 503 test was already marked as impossible to simulate faithfully.
 - **Cedar boundary cases:**
   - $2,000 and $2,000.50 denied

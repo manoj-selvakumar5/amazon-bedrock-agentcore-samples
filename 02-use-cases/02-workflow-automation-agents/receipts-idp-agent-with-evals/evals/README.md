@@ -54,7 +54,9 @@ Both paths write the same output shapes, so the scorers are shared.
 
 The code-based evaluators live in `../evaluators/business_outcomes/`. The same code is
 deployed as the evaluator Lambda, so a local score and a deployed score come from one
-implementation.
+implementation. `tests/test_e2e_evaluators_live.py` checks that: it calls all three deployed evaluators
+through the AgentCore Evaluate API, so AgentCore invokes the real Lambdas, and asserts the
+labels the local handler gives.
 
 ## The labelled data
 
