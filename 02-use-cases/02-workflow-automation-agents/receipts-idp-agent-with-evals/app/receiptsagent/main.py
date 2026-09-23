@@ -28,6 +28,7 @@ from config import (
     REGION,
     RUN_EVENT_BUS,
 )
+from decision import ReceiptDecision
 from gateway_auth import get_gateway_token
 from identity import verify_identity
 from memory.session import get_memory_session_manager
@@ -41,10 +42,8 @@ from strands.tools.mcp import MCPClient
 from tools.ocr import analyze_receipt
 from tools.structured_output import (
     get_last_expense,
-    get_last_validation,
     reset_state,
     submit_expense,
-    submit_validation,
 )
 from tools.table_parser import parse_line_items, parse_success_rate
 
@@ -79,13 +78,14 @@ NOT do the extraction — review it skeptically and independently. Check:
 - Is the merchant specific (not vague/empty)? Is the date plausible?
 - Is the extractor's confidence justified?
 
-Decide routing:
-- AUTO_PERSIST only when the extraction is clearly correct and reconciles.
-- NEEDS_REVIEW when anything is off: totals don't reconcile, the merchant/category
-  is questionable, large amounts with weak evidence, or low extractor confidence.
-Be conservative: when in doubt, NEEDS_REVIEW.
-
-You MUST finish by calling submit_validation with routing, confidence, notes, concerns.
+Decide, then act on your decision with exactly ONE tool call:
+- approve_expense only when the extraction is clearly correct and reconciles. It saves
+  the extractor's expense as it is; you cannot change its values.
+- send_to_review when anything is off: totals don't reconcile, a field is not supported
+  by the receipt, the merchant/category is questionable, a large amount has weak
+  evidence, or the extractor's confidence is low. Name the specific concerns.
+Be conservative: when in doubt, send_to_review. If only send_to_review is available,
+this run requires review; use it.
 """
 
 QUERY_PROMPT = """You are a helpful expense assistant. The user asks questions about
@@ -251,6 +251,7 @@ def _process(payload, context=None):
         while True:
             try:
                 extractor = Agent(
+                    name="extractor",
                     model=load_model(model_id=run_model, model_config={"cache_prompt": "default"}),
                     system_prompt=EXTRACTOR_PROMPT,
                     tools=[submit_expense],
@@ -296,29 +297,10 @@ def _process(payload, context=None):
             _tag_span_outcome(status="error", s3_uri=s3_uri)
             return {"error": "extractor did not submit an expense", "rung": rung, "step_downs": step_downs}
 
-        # 3) Independent validator agent — a sheddable rung feature (spec §6.1).
-        # When the rung runs no validator (L2 down) or forces review, everything
-        # routes to human_review (degrade-safe, never auto-persist unchecked).
-        if features.get("validator"):
-            validator = Agent(
-                model=load_model(model_id=active["model"]),
-                system_prompt=VALIDATOR_PROMPT,
-                tools=[submit_validation],
-            )
-            validator(
-                f"Original OCR:\n{ocr['raw_text']}\n\n"
-                f"Extractor's structured expense:\n{json.dumps(expense, default=str)}\n\n"
-                "Validate it and call submit_validation."
-            )
-            validation = get_last_validation()
-            routing = validation.get("routing", "NEEDS_REVIEW")  # fail safe
-        else:
-            validation = {"routing": "NEEDS_REVIEW", "notes": f"validator shed at rung {rung}", "confidence": 0}
-            routing = "NEEDS_REVIEW"
-
-        needs_review = routing != "AUTO_PERSIST" or features.get("forceReview", False)
-
-        # 4) The validator owns the decision. Persist or route to review.
+        # 3) Independent validator agent — a sheddable rung feature (spec §6.1). It decides
+        # AND acts, through pinned decision tools (decision.py): it can choose save or review,
+        # never change what is saved. When the rung runs no validator (L2 down) or forces
+        # review, everything routes to human_review (degrade-safe, never auto-persist unchecked).
         save_name = _tool_name(gateway_tools, "save_expense", "save_expense")
         review_name = _tool_name(gateway_tools, "human_review", "human_review")
         common = {
@@ -333,49 +315,62 @@ def _process(payload, context=None):
             "source_receipt_s3": s3_uri,
         }
 
-        cedar_blocked = False
-        try:
-            if not needs_review:
-                # Try to persist. Cedar may DENY this at the gateway (e.g. total over
-                # the threshold) — a deterministic guardrail independent of the agents
-                # (spec §5.5). If denied, fall back to human_review.
-                save_result = _call_gateway_tool(
-                    gateway=gateway,
-                    semantic_name="save_expense",
-                    resolved_name=save_name,
-                    arguments={
-                        **common,
-                        "subtotal": expense["subtotal"],
-                        "tax": expense["tax"],
-                        "tip": expense["tip"],
-                        "payment_method": expense["payment_method"],
-                        "status": "processed",
-                        # The amount the Cedar policy checks, as integer cents (see to_cents).
-                        "total_cents": to_cents(expense["total"]),
-                    },
-                )
-                if _is_denied(save_result):
-                    cedar_blocked = True
-                    needs_review = True
-                else:
-                    result = save_result
-                    status = "processed"
+        def _save():
+            # Cedar may DENY this at the gateway (total over the threshold): a deterministic
+            # guardrail independent of the agents (spec §5.5). The decision then files a review.
+            return _call_gateway_tool(
+                gateway=gateway,
+                semantic_name="save_expense",
+                resolved_name=save_name,
+                arguments={
+                    **common,
+                    "subtotal": expense["subtotal"],
+                    "tax": expense["tax"],
+                    "tip": expense["tip"],
+                    "payment_method": expense["payment_method"],
+                    "status": "processed",
+                    # The amount the Cedar policy checks, as integer cents (see to_cents).
+                    "total_cents": to_cents(expense["total"]),
+                },
+            )
 
-            if needs_review:
-                reason = (
-                    "blocked by policy (amount over threshold)"
-                    if cedar_blocked
-                    else (validation.get("concerns") or "validator routed to review")
+        def _review(reason: str):
+            return _call_gateway_tool(
+                gateway=gateway,
+                semantic_name="human_review",
+                resolved_name=review_name,
+                arguments={**common, "reason": reason},
+            )
+
+        decision = ReceiptDecision(
+            save=_save,
+            review=_review,
+            write_note=lambda reason: _reviewer_note(ocr["raw_text"], expense, reason, active["model"]),
+            is_denied=_is_denied,
+        )
+        try:
+            if features.get("validator"):
+                validator = Agent(
+                    name="validator",
+                    model=load_model(model_id=active["model"]),
+                    system_prompt=VALIDATOR_PROMPT,
+                    tools=decision.tools(allow_approve=not features.get("forceReview", False)),
                 )
-                note = _reviewer_note(ocr["raw_text"], expense, reason, active["model"])
-                result = _call_gateway_tool(
-                    gateway=gateway,
-                    semantic_name="human_review",
-                    resolved_name=review_name,
-                    arguments={**common, "reason": note or reason},
+                validator(
+                    f"Original OCR:\n{ocr['raw_text']}\n\n"
+                    f"Extractor's structured expense:\n{json.dumps(expense, default=str)}\n\n"
+                    "Validate it, then act on your decision with exactly one tool call."
                 )
-                status = "needs_review"
+                if decision.error:
+                    raise decision.error
+                decision.fallback_review("validator made no decision")
+            else:
+                decision.fallback_review(f"validator shed at rung {rung}")
         except Exception:
+            validation = decision.validation
+            routing = validation.get("routing", "")
+            needs_review = decision.status != "processed"
+            cedar_blocked = decision.cedar_blocked
             _tag_span_outcome(
                 status="error",
                 needs_review=needs_review,
@@ -388,6 +383,12 @@ def _process(payload, context=None):
                 expense=expense,
             )
             raise
+        validation = decision.validation
+        routing = validation.get("routing", "NEEDS_REVIEW")
+        status = decision.status
+        result = decision.result
+        cedar_blocked = decision.cedar_blocked
+        needs_review = status != "processed"
 
     _tag_span_outcome(
         status=status,

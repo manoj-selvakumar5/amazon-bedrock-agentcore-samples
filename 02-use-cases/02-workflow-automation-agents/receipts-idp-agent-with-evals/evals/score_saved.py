@@ -36,23 +36,58 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 
 
-def _through_agent(spans: list[dict], index: int) -> list[dict]:
-    """The session up to the end of the index-th agent (0 extractor, 1 validator, 2 note writer).
+def _note_writer_part(spans: list[dict]) -> set[str]:
+    """Span ids of the note writer's run and the human_review call that carries its note.
+
+    The validator acts through its decision tools, so both run inside the validator's own
+    send_to_review call. Log records carry the span id of the span they belong to.
+    """
+    roots = {
+        s["spanId"]
+        for s in spans
+        if s.get("spanId")
+        and (
+            (s.get("attributes") or {}).get("gen_ai.agent.name") == "reviewer-note"
+            or (s.get("attributes") or {}).get("gen_ai.tool.name") == "human_review"
+        )
+        and s.get("name", "").startswith(("invoke_agent", "execute_tool"))
+    }
+    children: dict[str, list[str]] = {}
+    for s in spans:
+        if s.get("spanId") and s.get("parentSpanId") and "startTimeUnixNano" in s:
+            children.setdefault(s["parentSpanId"], []).append(s["spanId"])
+    part, stack = set(), list(roots)
+    while stack:
+        span_id = stack.pop()
+        if span_id not in part:
+            part.add(span_id)
+            stack.extend(children.get(span_id, []))
+    return part
+
+
+def _through_agent(spans: list[dict], name: str) -> list[dict]:
+    """The session up to the end of the named agent (extractor or validator), without the note writer.
 
     Keeps the root invocation span so the session still has its receipts.* attributes.
     """
-    agents = [s for s in spans if s.get("name", "").startswith("invoke_agent")]
-    cutoff = agents[index]["endTimeUnixNano"]
+    agent = next(
+        s
+        for s in spans
+        if s.get("name", "").startswith("invoke_agent") and (s.get("attributes") or {}).get("gen_ai.agent.name") == name
+    )
+    cutoff = agent["endTimeUnixNano"]
+    excluded = _note_writer_part(spans)
     return [
         s
         for s in spans
-        if s.get("name") == "receipts.invocation" or (s.get("startTimeUnixNano", s.get("timeUnixNano")) or 0) <= cutoff
+        if s.get("name") == "receipts.invocation"
+        or ((s.get("startTimeUnixNano", s.get("timeUnixNano")) or 0) <= cutoff and s.get("spanId") not in excluded)
     ]
 
 
 def through_validator(spans: list[dict]) -> list[dict]:
     """Leaves out the note writer, which repeats the validator's concern and could earn its credit."""
-    return _through_agent(spans, 1)
+    return _through_agent(spans, "validator")
 
 
 FIELD_NAMES = {"date": "transaction date"}
@@ -66,18 +101,20 @@ def reason_assertions(label: dict, row: dict) -> list[str]:
         for item in explanation.split("Also wrong:", 1)[1].split(".", 1)[0].split(";"):
             field = item.strip().split(" ", 1)[0]
             if field:
-                found.append(f"identifies that the {FIELD_NAMES.get(field, field)} is not supported by the receipt text")
+                found.append(
+                    f"identifies that the {FIELD_NAMES.get(field, field)} is not supported by the receipt text"
+                )
     if (row.get("dollar_gap") or 0) >= 0.005:
         found.append("identifies that the total is not supported by the receipt text")
-    return [f"The validation step (submit_validation) {text}." for text in found]
+    return [f"The validator, in its decision (approve_expense or send_to_review), {text}." for text in found]
 
 
 def extractor_only(spans: list[dict]) -> list[dict]:
-    """The session up to the end of the extractor agent, which is the first invoke_agent span.
+    """The session up to the end of the extractor agent.
 
     Keeps the root invocation span so the session still has its receipts.* attributes.
     """
-    return _through_agent(spans, 0)
+    return _through_agent(spans, "extractor")
 
 
 def parse_args() -> argparse.Namespace:

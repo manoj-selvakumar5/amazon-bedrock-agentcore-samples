@@ -17,10 +17,10 @@ The subject is the **receipts intelligent document processing sample** (`02-use-
 
 1. **OCR.** Amazon Textract `AnalyzeExpense` reads the image. The code passes the models only the fields Textract recognises (vendor, date, totals and so on) plus line items. Other printed text is dropped.
 2. **Extractor.** A model reads the OCR output and calls its one tool, `submit_expense`, with merchant, date, currency, subtotal, tax, tip, total, category and a self-reported confidence.
-3. **Validator.** A second, independent model sees the OCR and the extraction, and calls `submit_validation` with a routing decision (`AUTO_PERSIST` or `NEEDS_REVIEW`), a confidence and its concerns.
-4. **Orchestrator code** acts on the decision:
-   - it calls `save_expense`, or
-   - it calls `human_review`, which writes the expense with status `needs_review` so a person can look at it.
+3. **Validator.** A second, independent model sees the OCR and the extraction, decides, and acts on its decision by calling exactly one of two tools, each with a confidence and its reasoning:
+   - `approve_expense` calls `save_expense` through the Gateway
+   - `send_to_review` calls `human_review`, which writes the expense with status `needs_review` so a person can look at it
+4. **Orchestrator code** sets the limits. The tools are pinned to the extractor's expense, so the validator cannot change what is saved. Only one decision is acted on. No decision, a shed validator, or a rung that forces review all mean review. (Until 2026-09-23 the validator only reported a verdict through `submit_validation`, and code made the calls; see 3.7.)
 5. **A Cedar policy at the Gateway** denies any `save_expense` with a total of $2,000 or more, whatever the models decided. A denied save falls back to review.
 6. **Reviewer note.** When a receipt is held, a third model writes a 2-3 sentence note for the human reviewer.
 
@@ -154,6 +154,21 @@ The sample deploys with one command (`./deploy.sh`), with no local container eng
 - **No double counting.** Routing's expected answer switches to "review" whenever the extraction was wrong. The validator catching the extractor's mistake is then not counted as a false alarm.
 - **Per-turn answers in one call.** `Correctness` is trace-level. Each chat turn is its own trace, and one `Evaluate` call carries one expected answer per turn, keyed by trace id.
 
+### 3.7 The validator acts through its own tools
+
+Until this change, the validator reported a verdict and orchestrator code made the save or review call. Strands does not trace calls made by code, so the Gateway calls carried hand-made spans, and the decision did not show as an agent action. The validator now calls `approve_expense` or `send_to_review` itself (ADR-0019 in the sample).
+
+- **What stayed in code:** which tools are offered, one decision only, the fallback to review, and the expense that is written. The tools take no amounts or fields.
+- **What the trace shows now:** the validator's `execute_tool approve_expense` or `send_to_review` span, with the Gateway call beneath it. On review, the note writer runs beneath it too.
+- **What it changed in the harness:** the note writer and the `human_review` call now sit inside the validator's part of the trace. Selecting the validator's part by position would have included the note writer's text, which repeats the validator's concern and could earn it credit. The harness now selects each agent by name and excludes the note writer and the `human_review` call.
+- **The right-reason assertion was re-worded and re-tested:** "The validator, in its decision (approve_expense or send_to_review), identifies that ...". See 4.1.
+- **Verified after redeploy:**
+  - Live tests: 22 of 22 user-facing (Cedar included), resilience 4 passed and 1 skipped by design.
+  - The 9 labelled receipts through the front door (`out/deployed-00a58b05`). Every trace shows the decision as the validator's own tool call. The $2,400 receipt reads `approve_expense`, then `save_expense` denied by Cedar, then the note writer and `human_review`, all beneath the approval.
+  - The live `ReceiptsLive` monitor scored that session `held`.
+  - Scores: right reason 3 of 3; invented values 2 of 2 caught, plus the known false alarm on the honest low confidence; review-queue precision 67% (4 of 6).
+  - These differ from the previous deployed run only by the validator's usual run-to-run variation, since the prompt criteria did not change. This time the extractor left `pii_heavy`'s date empty instead of inventing one, and the validator held it for the missing date. The validator held `split_a` ($1,250) for its size. Both count as false alarms. `split_b` was approved, which is the split-purchase bypass the validator cannot see from one receipt.
+
 ---
 
 ## 4. The tests
@@ -166,6 +181,7 @@ Each judge was run on real traces and on copies with exactly one thing changed.
 |---|---|---|
 | `ToolParameterAccuracy` | 7: a real correct date, the date edited to one not in the OCR, the total edited, OCR and value both changed consistently, three real invented dates | Whole trace: **4 of 7 wrong**. Extractor part only: **7 of 7 right**, naming the right field each time |
 | `GoalSuccessRate` (right reason) | 14: each receipt against its own assertion and against another receipt's | **14 of 14** |
+| `GoalSuccessRate`, after the validator moved to decision tools | 4, each scored twice: the real `send_to_review` trace, a terse but correct concern, a vague concern, the wrong problem named. The extractor's own "does not reconcile" flag stays in every copy | **8 of 8**; the extractor's flag did not earn the validator credit |
 | `ConversationCompleteness` | A real conversation, and the same with its final answer replaced by a deflection; each scored twice | 1.0, 1.0, then **0.67, 0.67** |
 | `KnowledgeRetention` | A real conversation, and the same with turn 2 re-asking for facts turn 1 gave; each scored twice | 1.0, 1.0, then **0.67, 0.67** |
 | `Correctness` | A correct answer, the same edited to a wrong total, the real wrong answer, another correct total, a correct refusal; each scored twice | **10 of 10** |
@@ -186,7 +202,9 @@ Each judge was run on real traces and on copies with exactly one thing changed.
 - the window size is fixed
 - chat questions no longer write to the receipt ledger
 
-All 69 unit tests in the sample pass. They include tests that the deployed evaluators route correctly on both the on-demand path (name) and the online path (neither name nor id), and that totals convert to integer cents. The code-based evaluators were also checked by calling their handler directly with hand-built spans.
+`tests/test_decision.py`, 10 tests: approve saves; the approve tool takes no expense fields; review files the reviewer note; a second decision is refused; no decision means review; forceReview offers only review; a Cedar denial files a review; a Gateway failure is raised; and the harness trims the trace to the validator without the note writer.
+
+All 79 unit tests in the sample pass. They include tests that the deployed evaluators route correctly on both the on-demand path (name) and the online path (neither name nor id), and that totals convert to integer cents. The code-based evaluators were also checked by calling their handler directly with hand-built spans.
 
 ### 4.4 Live tests against the deployed stack
 

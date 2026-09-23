@@ -25,7 +25,7 @@ flowchart TB
     end
 
     subgraph DP["Data plane — one receipt run (Runtime microVM)"]
-        AGENT["Dual agent:<br/>0. read rung (cached)<br/>1. OCR (Textract)<br/>2. EXTRACTOR → structured<br/>3. VALIDATOR → route<br/>4. persist or review"]
+        AGENT["Dual agent:<br/>0. read rung (cached)<br/>1. OCR (Textract)<br/>2. EXTRACTOR → structured<br/>3. VALIDATOR → approve or review<br/>(pinned tools)"]
         GW["AgentCore Gateway<br/>(1 MCP endpoint)<br/>Cedar on every tool call"]
         DDB[("DynamoDB<br/>Users / Expenses")]
         BR["Bedrock<br/>(global inference profile,<br/>per the active rung)"]
@@ -56,8 +56,8 @@ flowchart TB
 2. **OCR.** Textract `analyze_expense` reads the receipt straight from S3 (`S3Object`) and returns summary fields + line-item groups with per-field confidence.
 3. **Table parse.** A deterministic Markdown-table parser turns the line-item block into structured rows; the agent only re-derives rows the parser couldn't (hybrid extraction).
 4. **Extractor agent.** A Strands agent on the rung's model produces a structured expense via a forced `submit_expense` tool call — machine-checkable, not free text.
-5. **Validator agent.** An independent agent (sheddable from L2 down) sees only the OCR + the extractor's output and decides `AUTO_PERSIST` vs `NEEDS_REVIEW`.
-6. **Persist or review.** `save_expense` (Cedar-gated) on auto-persist, else `human_review` — both through the Gateway. A Cedar denial on `save_expense` falls back to `human_review`.
+5. **Validator agent.** An independent agent (sheddable from L2 down) sees only the OCR + the extractor's output, decides, and acts by calling exactly one of two pinned tools: `approve_expense` or `send_to_review` ([ADR-0019](decisions/0019-validator-acts-through-pinned-tools.md)). The tools take its confidence and reasoning, never the expense fields, so it cannot change what is saved.
+6. **Persist or review.** `approve_expense` calls `save_expense` (Cedar-gated) through the Gateway; a Cedar denial files a `human_review` instead. `send_to_review` writes the reviewer note and calls `human_review`. If the validator decides nothing, or is shed, or the rung forces review, code files the review.
 7. **Return + observe.** A structured result with `confidence`, `needs_review`, and the `rung`. The invocation span carries the outcome as `receipts.*` attributes (status, total, whether Cedar blocked it, both confidences, the extracted fields), and the save or review call has its own tool span. The evaluators read these; without them a correct save would look like a skipped step.
 
 ## Evaluation

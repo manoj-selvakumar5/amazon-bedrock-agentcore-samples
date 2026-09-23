@@ -25,9 +25,10 @@ Demo of the original pipeline: [demo.mp4](demo.mp4).
 ## What it does
 
 A receipt lands in S3. Textract reads it, an **extractor** agent produces a structured
-expense, and an independent **validator** agent checks it and decides between saving it
-automatically and sending it to a person. The expense is written through governed Gateway
-tools, with a Cedar policy blocking any automatic save of $2,000 or more whatever the
+expense, and an independent **validator** agent checks it and acts on its decision by
+calling one of two tools: save it automatically, or send it to a person. The tools are pinned
+to the extractor's expense, so the validator chooses but cannot change what is written. The
+expense is written through governed Gateway tools, with a Cedar policy blocking any automatic save of $2,000 or more whatever the
 agents decided. When a receipt is held, a third model writes a short note for the reviewer.
 
 A separate **chat** Runtime answers questions like "how much did I spend at Mr D.I.Y.?"
