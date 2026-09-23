@@ -47,6 +47,6 @@ The agents are named (`extractor`, `validator`, `reviewer-note`) so evaluation c
 
 ## Consequences
 
-- The note writer and the `human_review` call now run inside the validator's tool call. `evals/score_saved.py` selects the validator's part of the trace by agent name and excludes both, so the note writer's text cannot earn the validator credit for naming a problem. The right-reason assertions name the decision tools, and were contrast-tested again (vague concern, wrong problem, terse correct concern, real trace: 8 of 8 as expected).
+- The note writer and the `human_review` call now run inside the validator's tool call. `evals/score_saved.py` selects the validator's part of the trace by agent name and excludes both, so the note writer's text cannot earn the validator credit for naming a problem. The right-reason assertions name the decision tools, and were contrast-tested again (vague concern, wrong problem, terse correct concern, real trace: 8 of 8 as expected, on both a local and a deployed trace). The exclusion is necessary, not cautious: with the validator's concern made vague, the trimmed trace scores No, and the whole trace scores Yes, because the note writer's note names the $8 gap.
 - Traces from before this change, where agents were unnamed, cannot be rescored with the new trimming.
 - What the validator decides is unchanged: the same prompt criteria, the same conservatism.
