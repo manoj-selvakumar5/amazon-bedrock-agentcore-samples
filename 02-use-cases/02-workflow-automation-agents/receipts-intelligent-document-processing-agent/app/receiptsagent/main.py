@@ -363,6 +363,7 @@ def _process(payload, context=None):
                 s3_uri=s3_uri,
                 extractor_confidence=expense.get("confidence"),
                 validator_confidence=validation.get("confidence"),
+                expense=expense,
             )
             raise
 
@@ -375,6 +376,7 @@ def _process(payload, context=None):
         s3_uri=s3_uri,
         extractor_confidence=expense.get("confidence"),
         validator_confidence=validation.get("confidence"),
+        expense=expense,
     )
     return {
         "status": status,
@@ -516,12 +518,16 @@ def _tag_span_outcome(
     s3_uri: str = "",
     extractor_confidence=None,
     validator_confidence=None,
+    expense: dict | None = None,
 ) -> None:
     """Stamp the final receipt outcome on the active invocation span.
 
     `receipts.s3_uri` is the receipt this run processed. An evaluator needs it to tell a real
     duplicate from two separate purchases that share merchant, date, and amount, and it is the
     only way to join a trace back to its ProcessingRuns row (receiptId = hash(s3_uri)).
+
+    `expense` stamps the other extracted fields, so extraction accuracy can be scored from
+    attributes alone and keeps working when message content capture is switched off.
     """
     try:
         from opentelemetry import trace
@@ -543,6 +549,10 @@ def _tag_span_outcome(
             span.set_attribute("receipts.extractor.confidence", extractor_confidence)
         if validator_confidence is not None:
             span.set_attribute("receipts.validator.confidence", validator_confidence)
+        for field in ("merchant", "transaction_date", "currency", "subtotal", "tax", "tip"):
+            value = (expense or {}).get(field)
+            if value is not None and value != "":
+                span.set_attribute(f"receipts.{field}", value)
         span.set_status(Status(StatusCode.ERROR if status == "error" else StatusCode.OK))
     except Exception as exc:  # noqa: BLE001 — telemetry is best-effort
         log.warning("span outcome-tag failed: %s", exc)

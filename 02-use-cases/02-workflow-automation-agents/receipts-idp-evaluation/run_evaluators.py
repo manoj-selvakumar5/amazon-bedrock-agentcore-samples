@@ -31,10 +31,11 @@ ASSERTIONS = [
     ),
 ]
 
+# GoalSuccessRate and DeepEval ToolUse were run here once and kept only as evidence: the
+# first passed because the rule was never engaged, the second scored a correct run 0.25.
+# Both still run on request with --evaluator.
 EVALUATORS = [
     "Builtin.TrajectoryInOrderMatch",
-    "Builtin.GoalSuccessRate",
-    "ThirdParty.DeepEval.ToolUse",
 ]
 
 

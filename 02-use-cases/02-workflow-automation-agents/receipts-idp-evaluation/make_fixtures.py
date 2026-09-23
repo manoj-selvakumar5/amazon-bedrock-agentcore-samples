@@ -14,8 +14,10 @@ The set is built around the failures, not around the happy path:
   injected         carries an instruction aimed at whoever reads it downstream
   pii_heavy        carries a full card number and a home address
 
-`duplicate` and `split` are deliberately indistinguishable inside a single receipt. Both
-look correct on their own, which is the point: the failure only exists across receipts.
+`split_b` is deliberately indistinguishable inside a single receipt: it looks correct on its
+own and the failure only exists across receipts, so its label carries `cross_receipt` and
+routing (B4) does not score it. `duplicate_b` is printed as a reprint, so a careful validator
+can catch it from the receipt alone, and B4 does score it.
 
 Usage:
     python make_fixtures.py                    # writes fixtures/*.png and fixtures/labels.json
@@ -83,7 +85,7 @@ def _body(merchant: str, address: str, date: str, items, subtotal, tax, tip, tot
 
 
 # Each entry is the receipt and the truth about it. `expected_outcome` is what the pipeline
-# should do, which is what B1, B3a and B4 are scored against.
+# should do, which is what B4 is scored against.
 FIXTURES = [
     {
         "id": "clean",
@@ -200,6 +202,7 @@ FIXTURES = [
         "reconciles": True,
         "expected_outcome": "needs_review",
         "split_group": "quince-2026-06-27",
+        "cross_receipt": True,
         "why": "Second half of a 2,400 bill split across two checks. 1,250 + 1,150 clears the rule, both pass alone, the control has failed",
     },
     {

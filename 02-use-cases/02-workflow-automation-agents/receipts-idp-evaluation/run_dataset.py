@@ -6,10 +6,13 @@ accumulate somewhere that survives between sessions.
 
 What it produces:
 
-  per receipt   B1 outcome, B2 dollar error, B3a threshold breach, from the code-based
-                evaluators, called directly with no Lambda deployed
-  per run       STP rate, dollar-weighted error, breach counts
-  cross-session B3b duplicates and splits, which no per-session evaluator can see
+  per receipt   B2 extraction accuracy from the code-based evaluator, called directly with
+                no Lambda deployed, and the outcome the agent stamped on the span
+  per run       straight-through rate, a count of saved receipts rather than an evaluator,
+                dollar-weighted error, and receipts with any field besides the total wrong
+  cross-session duplicates and splits, which no per-session evaluator can see
+
+Routing (B4) is scored afterwards by score_saved.py against the saved traces.
 
 Usage:
     python run_dataset.py --bucket <your-bucket>
@@ -78,7 +81,7 @@ def main() -> None:
     import boto3
     from bedrock_agentcore.evaluation.custom_code_based_evaluators import EvaluatorInput
     from bedrock_agentcore.evaluation.span_to_adot_serializer import convert_strands_to_adot
-    from business_outcomes import handler
+    from business_outcomes import _receipt_attributes, handler
     from opentelemetry import trace
     from opentelemetry.sdk.trace import SpanProcessor
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -143,54 +146,50 @@ def main() -> None:
         (case_dir / "adot.json").write_text(json.dumps(spans, indent=2, default=str))
         (case_dir / "result.json").write_text(json.dumps(outcome, indent=2, default=str))
 
-        stp = score("ReceiptsStpOutcome", spans)
-        dollars = score("ReceiptsDollarError", spans, {"total": label["total"]})
-        breach = score("ReceiptsThresholdBreach", spans)
+        status = _receipt_attributes(spans).get("receipts.status")
+        extraction = score("ReceiptsExtractionAccuracy", spans, label)
         results.append(
             {
                 "id": fixture_id,
                 "s3_uri": s3_uri,
                 "expected": label["expected_outcome"],
-                "actual": stp.label,
+                "actual": status,
                 "true_total": label["total"],
-                "stp": stp.value,
-                "dollar_gap": dollars.value,
-                "dollar_label": dollars.label,
-                "breach": breach.value,
-                "breach_label": breach.label,
+                "dollar_gap": extraction.value,
+                "extraction_label": extraction.label,
+                "extraction_explanation": extraction.explanation,
                 "session_id": session_id["value"],
             }
         )
-        print(f" {stp.label}")
+        print(f" {status}")
 
     (run_dir / "writes.json").write_text(json.dumps(local_gateway.WRITE_LOG, indent=2, default=str))
     (run_dir / "results.json").write_text(json.dumps(results, indent=2, default=str))
 
     # Per receipt
-    print(f"\n{'receipt':16s} {'expected':13s} {'actual':13s} {'ok':4s} {'$ gap':>8s}  breach")
+    print(f"\n{'receipt':16s} {'expected':13s} {'actual':13s} {'ok':4s} {'$ gap':>8s}  extraction")
     for row in results:
         ok = "yes" if row["actual"] == row["expected"] else "NO"
         gap = f"{row['dollar_gap']:.2f}" if row["dollar_gap"] is not None else "n/a"
         print(
-            f"  {row['id']:16s} {row['expected']:13s} {str(row['actual']):13s} {ok:4s} {gap:>8s}  {row['breach_label']}"
+            f"  {row['id']:16s} {row['expected']:13s} {str(row['actual']):13s} {ok:4s} {gap:>8s}  {row['extraction_label']}"
         )
 
-    # B1, B2, B3a
-    scored = [r for r in results if r["stp"] is not None]
-    stp_rate = sum(r["stp"] for r in scored) / len(scored) if scored else 0.0
+    # Straight-through rate is a count, not an evaluator: B4 already sees every outcome.
+    stp_rate = sum(1 for r in results if r["actual"] == "processed") / len(results) if results else 0.0
     gaps = [r["dollar_gap"] for r in results if r["dollar_gap"] is not None]
     dollar_rate = sum(gaps) / sum(r["true_total"] for r in results) if gaps else 0.0
-    breaches = [r for r in results if r["breach"]]
-    matched = [r for r in results if r["actual"] == r["expected"]]
+    field_errors = [r for r in results if "Also wrong:" in (r["extraction_explanation"] or "")]
 
     print("\nBusiness metrics")
-    print(f"  B1  straight-through processing rate   {stp_rate:.0%}")
+    print(f"  straight-through rate                 {stp_rate:.0%}")
     print(f"  B2  dollar-weighted error             {dollar_rate:.2%}")
-    print(f"  B3a threshold breaches                {len(breaches)}  (target 0)")
-    print(f"      routed as the label expects       {len(matched)}/{len(results)}")
+    print(f"      a field besides the total wrong   {len(field_errors)}/{len(results)}")
+    for row in field_errors:
+        print(f"        {row['id']}: {row['extraction_explanation']}")
 
-    # B3b, only visible across receipts
-    print("\nB3b cross-receipt controls")
+    # Only visible across receipts
+    print("\nCross-receipt checks")
     seen: dict[str, dict] = {}
     duplicates = []
     for write in local_gateway.WRITE_LOG:

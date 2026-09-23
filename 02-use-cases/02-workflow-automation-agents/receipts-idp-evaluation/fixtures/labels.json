@@ -92,6 +92,7 @@
     "reconciles": true,
     "expected_outcome": "needs_review",
     "split_group": "quince-2026-06-27",
+    "cross_receipt": true,
     "why": "Second half of a 2,400 bill split across two checks. 1,250 + 1,150 clears the rule, both pass alone, the control has failed"
   },
   {

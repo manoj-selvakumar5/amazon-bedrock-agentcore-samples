@@ -4,17 +4,19 @@ One Lambda backs several registered evaluators. `EvaluatorInput` carries `evalua
 so the handler branches on it and each metric is registered separately, returning its own
 score. Deploying one function rather than one per metric.
 
-    ReceiptsStpOutcome        B1   did this receipt clear without a person
-    ReceiptsDollarError       B2   how many dollars were recorded wrong
-    ReceiptsThresholdBreach   B3a  did anything at or above the limit save automatically
-    ReceiptsRoutingOutcome    B4   was the escalation, or the auto-save, the right call
+    ReceiptsExtractionAccuracy  B2  did the extractor read the receipt right: dollars on the
+                                    total, plus date, merchant, currency, subtotal, tax, tip
+    ReceiptsRoutingOutcome      B4  was the escalation, or the auto-save, the right call
+
+One evaluator per model decision: the extractor reading the receipt, the validator choosing
+save or review. Controls the code enforces, such as the Cedar threshold, are not re-checked
+here, and straight-through rate is a count over B4's outcomes rather than an evaluator.
 
 Each reads span attributes the agent stamps on the invocation span, never message content,
-so all three keep working when prompt and completion capture is switched off.
+so both keep working when prompt and completion capture is switched off.
 
-B3b, duplicates and splits, is deliberately not here. That failure exists between receipts,
-so a per-session evaluator cannot see it. It lives in the dataset scorer locally, and in a
-deployed stack becomes this same Lambda reading the Expenses table.
+Duplicates and splits are deliberately not here. That failure exists between receipts, so a
+per-session evaluator cannot see it. It lives in the dataset scorer locally.
 
 Test locally with no AWS:
 
@@ -23,6 +25,7 @@ Test locally with no AWS:
 """
 
 import json
+import re
 from typing import Any
 
 from bedrock_agentcore.evaluation.custom_code_based_evaluators import (
@@ -30,9 +33,6 @@ from bedrock_agentcore.evaluation.custom_code_based_evaluators import (
     EvaluatorOutput,
     custom_code_based_evaluator,
 )
-
-# Mirrors the Cedar policy BlockExcessiveExpense in agentcore/agentcore.json.
-POLICY_THRESHOLD = 2000.0
 
 # A receipt is material when a single error exceeds this. Reported alongside the rate,
 # because one large miss and a hundred small ones need different responses.
@@ -69,28 +69,49 @@ def _label(input: EvaluatorInput) -> dict[str, Any]:
     return {}
 
 
-def _stp_outcome(attributes: dict) -> EvaluatorOutput:
-    """B1. The share of receipts that clear with no person involved."""
-    status = attributes.get("receipts.status")
-    if not status:
-        return EvaluatorOutput(
-            errorCode="MISSING_REQUIRED_FIELD",
-            errorMessage="no receipts.status on the session, so the outcome was never recorded",
-        )
-    cleared = status == "processed"
-    return EvaluatorOutput(
-        value=1.0 if cleared else 0.0,
-        label=status,
-        explanation=(
-            "Cleared without a person"
-            if cleared
-            else f"Did not clear: {status}. Averaged across receipts this is the STP rate"
-        ),
-    )
+def _merchant_key(name: Any) -> str:
+    """Case and punctuation do not make a merchant wrong: "BLUE BOTTLE" is "Blue Bottle"."""
+    return re.sub(r"[^a-z0-9]+", " ", str(name).lower()).strip()
 
 
-def _dollar_error(attributes: dict, label: dict) -> EvaluatorOutput:
-    """B2. Dollars recorded wrong, not fields recorded wrong."""
+def _field_errors(attributes: dict, label: dict) -> list[str]:
+    """Non-total fields recorded differently from the label, one line each.
+
+    Only fields present on both sides are compared, so a label without a tip or a span from
+    before these attributes existed does not count as an error.
+    """
+    errors = []
+
+    def both(span_key: str, label_key: str):
+        recorded, expected = attributes.get(span_key), label.get(label_key)
+        return (recorded, expected) if recorded is not None and expected is not None else None
+
+    if pair := both("receipts.transaction_date", "transaction_date"):
+        if str(pair[0]) != str(pair[1]):
+            errors.append(f"date {pair[0]} against a true {pair[1]}")
+    if pair := both("receipts.merchant", "merchant"):
+        if _merchant_key(pair[0]) != _merchant_key(pair[1]):
+            errors.append(f"merchant {pair[0]!r} against a true {pair[1]!r}")
+    if pair := both("receipts.currency", "currency"):
+        if str(pair[0]).upper() != str(pair[1]).upper():
+            errors.append(f"currency {pair[0]} against a true {pair[1]}")
+    for field in ("subtotal", "tax", "tip"):
+        if pair := both(f"receipts.{field}", field):
+            try:
+                if abs(float(pair[0]) - float(pair[1])) >= 0.005:
+                    errors.append(f"{field} {float(pair[0]):.2f} against a true {float(pair[1]):.2f}")
+            except (TypeError, ValueError):
+                errors.append(f"{field} {pair[0]!r} is not a number")
+    return errors
+
+
+def _extraction_accuracy(attributes: dict, label: dict) -> EvaluatorOutput:
+    """B2. Dollars recorded wrong on the total, plus any other field recorded wrong.
+
+    `value` stays the dollar gap on the total, so the dollar-weighted rate is unchanged. The
+    other fields are in the label and explanation, because a fabricated date costs no dollars
+    and would otherwise read as a perfect extraction.
+    """
     recorded = attributes.get("receipts.total")
     true_total = label.get("total")
     if recorded is None or true_total is None:
@@ -99,43 +120,23 @@ def _dollar_error(attributes: dict, label: dict) -> EvaluatorOutput:
             errorMessage="needs receipts.total on the span and a labelled total in expectedResponse",
         )
     gap = abs(float(recorded) - float(true_total))
-    material = gap > MATERIALITY
-    return EvaluatorOutput(
-        value=gap,
-        label="material_error" if material else ("exact" if gap < 0.005 else "minor_error"),
-        explanation=(
-            f"Recorded {float(recorded):.2f} against a true {float(true_total):.2f}, off by {gap:.2f}. "
-            "Sum these gaps and divide by the sum of true totals for the dollar-weighted rate"
-        ),
-    )
+    field_errors = _field_errors(attributes, label)
 
-
-def _threshold_breach(attributes: dict) -> EvaluatorOutput:
-    """B3a. A breach is money at or above the limit committed without a person."""
-    status = attributes.get("receipts.status")
-    total = attributes.get("receipts.total")
-    if not status or total is None:
-        return EvaluatorOutput(
-            errorCode="MISSING_REQUIRED_FIELD",
-            errorMessage="needs receipts.status and receipts.total on the span",
-        )
-    total = float(total)
-    breach = status == "processed" and total >= POLICY_THRESHOLD
-    if breach:
-        explanation = (
-            f"{total:.2f} saved automatically at or above the {POLICY_THRESHOLD:.0f} limit. One breach is a finding"
-        )
-    elif total >= POLICY_THRESHOLD:
-        blocked_by_policy = bool(attributes.get("receipts.cedar_blocked"))
-        explanation = (
-            f"{total:.2f} is at or above the limit and was held for review"
-            f"{', blocked by policy' if blocked_by_policy else ', routed by the validator'}. The control worked"
-        )
+    if gap > MATERIALITY:
+        verdict = "material_error"
+    elif field_errors:
+        verdict = "field_error"
+    elif gap >= 0.005:
+        verdict = "minor_error"
     else:
-        explanation = f"{total:.2f} is below the limit, so the control was not engaged"
-    return EvaluatorOutput(
-        value=1.0 if breach else 0.0, label="breach" if breach else "no_breach", explanation=explanation
-    )
+        verdict = "exact"
+
+    explanation = f"Total recorded {float(recorded):.2f} against a true {float(true_total):.2f}, off by {gap:.2f}."
+    if field_errors:
+        explanation += " Also wrong: " + "; ".join(field_errors) + "."
+    explanation += " Sum the total gaps and divide by the sum of true totals for the dollar-weighted rate"
+
+    return EvaluatorOutput(value=gap, label=verdict, explanation=explanation)
 
 
 def _routing_outcome(attributes: dict, label: dict) -> EvaluatorOutput:
@@ -144,6 +145,11 @@ def _routing_outcome(attributes: dict, label: dict) -> EvaluatorOutput:
     A false clear scales with the amount: money committed that should have been checked.
     A false alarm is a roughly fixed cost, an analyst confirming work that was already right.
     Collapsing them into one accuracy number hides which of the two is happening.
+
+    The validator is judged on what it was shown, the extraction, not on the receipt itself.
+    When the extraction got any field wrong, review is the right call whatever the label says,
+    so escalating it is not a false alarm. Otherwise one extractor mistake would count twice:
+    once in B2 against the extractor, and again here against the validator that caught it.
     """
     status = attributes.get("receipts.status")
     expected = label.get("expected_outcome")
@@ -152,6 +158,13 @@ def _routing_outcome(attributes: dict, label: dict) -> EvaluatorOutput:
             errorCode="MISSING_REQUIRED_FIELD",
             errorMessage="needs receipts.status on the span and expected_outcome in expectedResponse",
         )
+
+    extraction_wrong = _field_errors(attributes, label)
+    recorded, true_total = attributes.get("receipts.total"), label.get("total")
+    if recorded is not None and true_total is not None and abs(float(recorded) - float(true_total)) >= 0.005:
+        extraction_wrong.append(f"total {float(recorded):.2f} against a true {float(true_total):.2f}")
+    if extraction_wrong:
+        expected = "needs_review"
     if status not in ("processed", "needs_review"):
         return EvaluatorOutput(
             value=0.0,
@@ -172,10 +185,16 @@ def _routing_outcome(attributes: dict, label: dict) -> EvaluatorOutput:
         ("needs_review", "needs_review"): ("ReviewCorrect", "Escalated and the label agrees. Working as designed"),
     }[(status, expected)]
 
+    explanation = outcome[1]
+    if extraction_wrong:
+        explanation += (
+            ". Expected review because the extraction it was shown was wrong: " + "; ".join(extraction_wrong)
+        )
+
     return EvaluatorOutput(
         value=1.0 if outcome[0] in ("AutoPersistCorrect", "ReviewCorrect") else 0.0,
         label=outcome[0],
-        explanation=outcome[1],
+        explanation=explanation,
     )
 
 
@@ -185,12 +204,9 @@ def handler(input: EvaluatorInput, context) -> EvaluatorOutput:
     attributes = _receipt_attributes(input.session_spans)
     name = (input.evaluator_name or "").strip()
 
-    if name.endswith("ReceiptsStpOutcome"):
-        return _stp_outcome(attributes)
-    if name.endswith("ReceiptsDollarError"):
-        return _dollar_error(attributes, _label(input))
-    if name.endswith("ReceiptsThresholdBreach"):
-        return _threshold_breach(attributes)
+    # ReceiptsDollarError is the name B2 was first registered under; kept so older runs resolve.
+    if name.endswith("ReceiptsExtractionAccuracy") or name.endswith("ReceiptsDollarError"):
+        return _extraction_accuracy(attributes, _label(input))
     if name.endswith("ReceiptsRoutingOutcome"):
         return _routing_outcome(attributes, _label(input))
 

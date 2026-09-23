@@ -93,6 +93,8 @@ The last two pairs are deliberately correct in isolation. The failure exists onl
 
 ## 8. What the runs produced
 
+> **Superseded in part, 2026-09-22:** see `2026-09-22-evaluator-pruning.md`. B1 and B3a are no longer evaluators, B2 now checks every field, B4 no longer scores `split_b`, the judges are opt-in evidence, and trajectory work is parked.
+
 | Receipt | Expected | Actual | Routing outcome |
 |---|---|---|---|
 | clean | processed | needs_review | FalseAlarm |
@@ -121,6 +123,8 @@ The last two pairs are deliberately correct in isolation. The failure exists onl
 5. **The agent is over-cautious.** Two of five escalations were unnecessary, which is the cost side of a safety record that looks perfect.
 
 ## 10. What the evaluators themselves showed
+
+> **Superseded in part, 2026-09-22:** see `2026-09-22-evaluator-pruning.md`. B1 and B3a are no longer evaluators, B2 now checks every field, B4 no longer scores `split_b`, the judges are opt-in evidence, and trajectory work is parked.
 
 | Evaluator | Type | Result |
 |---|---|---|

@@ -8,6 +8,8 @@ Each metric in plain terms: what it is, why finance cares, how it can be gamed o
 
 ## B1 Straight-through processing
 
+> **Superseded in part, 2026-09-22:** see `2026-09-22-evaluator-pruning.md`. B1 and B3a are no longer evaluators, B2 now checks every field, B4 no longer scores `split_b`, the judges are opt-in evidence, and trajectory work is parked.
+
 **Straight-through processing** is a term from payments and accounts payable. It means a transaction that goes end to end without a person touching it. In AP tools it's often called the touchless rate.
 
 **In this sample.** A receipt lands in S3, gets OCR'd, extracted, validated, and saved as an expense. If all of that happens and the expense is posted automatically, that receipt went straight through. If anything stops it for a human, it didn't.
@@ -88,6 +90,8 @@ It needs labels, so it only runs against the golden set. Production has no corre
 ---
 
 ## B3 Control effectiveness
+
+> **Superseded in part, 2026-09-22:** see `2026-09-22-evaluator-pruning.md`. B1 and B3a are no longer evaluators, B2 now checks every field, B4 no longer scores `split_b`, the judges are opt-in evidence, and trajectory work is parked.
 
 **Control effectiveness** is the count of times the agent broke a rule the company must never break. Unlike the other metrics it is not a rate you improve. **The target is zero**, and a single breach is an audit finding.
 

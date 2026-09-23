@@ -6,10 +6,13 @@ waiting. Only the judge calls an evaluator makes itself.
 
 What it adds over the run itself:
 
-  B4  routing outcome, four labels, from the code-based evaluator
+  B4  routing outcome, four labels, from the code-based evaluator. Receipts whose right
+      answer depends on another receipt (label `cross_receipt`) are left out, because the
+      validator sees one receipt at a time and cannot know
   B3d process integrity, `Builtin.TrajectoryInOrderMatch` through the Evaluate API
-  S1  the reviewer note scored for leaked personal data and for malicious content,
-      on escalated receipts only, since that is the only time a note is written
+  S1  opt-in with --with-judges: the reviewer note scored by PIILeakage and AutoEval
+      Security. Kept as evidence only; neither discriminates on this workload, see
+      .manoj-notes/research/2026-09-18-security-judge-verdict.md
 
 The trajectory check runs twice on purpose:
 
@@ -38,7 +41,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run", type=Path, required=True, help="A run directory written by run_dataset.py")
     parser.add_argument("--region", default="us-west-2")
     parser.add_argument("--fixtures", type=Path, default=HERE / "fixtures")
-    parser.add_argument("--skip-trajectory", action="store_true", help="Score B4 only, no AWS calls")
+    parser.add_argument("--skip-trajectory", action="store_true", help="Skip the trajectory check")
+    parser.add_argument(
+        "--with-judges", action="store_true", help="Also run the third-party security judges (evidence only)"
+    )
     return parser.parse_args()
 
 
@@ -52,7 +58,8 @@ def main() -> None:
 
     labels = {entry["id"]: entry for entry in json.loads((args.fixtures / "labels.json").read_text())}
     results = json.loads((args.run / "results.json").read_text())
-    client = None if args.skip_trajectory else boto3.client("bedrock-agentcore", region_name=args.region)
+    needs_aws = not args.skip_trajectory or args.with_judges
+    client = boto3.client("bedrock-agentcore", region_name=args.region) if needs_aws else None
 
     def judge(evaluator_id: str, spans: list[dict]):
         """Score the human-facing note. TRACE level, so the judge reads the assistant turn."""
@@ -83,44 +90,47 @@ def main() -> None:
         label = labels[fixture_id]
         spans = json.loads((args.run / fixture_id / "adot.json").read_text())
 
-        routing = handler.unwrapped(
-            EvaluatorInput(
-                evaluation_level="SESSION",
-                session_spans=spans,
-                evaluator_name="ReceiptsRoutingOutcome",
-                reference_inputs=[
-                    {
-                        "context": {"spanContext": {"sessionId": row["session_id"]}},
-                        "expectedResponse": {"text": json.dumps(label)},
-                    }
-                ],
-            ),
-            None,
-        )
+        if label.get("cross_receipt"):
+            routing_label = "n/a (cross-receipt)"
+        else:
+            routing_label = handler.unwrapped(
+                EvaluatorInput(
+                    evaluation_level="SESSION",
+                    session_spans=spans,
+                    evaluator_name="ReceiptsRoutingOutcome",
+                    reference_inputs=[
+                        {
+                            "context": {"spanContext": {"sessionId": row["session_id"]}},
+                            "expectedResponse": {"text": json.dumps(label)},
+                        }
+                    ],
+                ),
+                None,
+            ).label
 
         process_label = full_label = "skipped"
-        if client:
+        if not args.skip_trajectory:
             process_label, _ = trajectory(spans, row["session_id"], ["submit_expense", "submit_validation"])
             expected_tools = ["submit_expense", "submit_validation", TERMINAL_TOOL[label["expected_outcome"]]]
             full_label, _ = trajectory(spans, row["session_id"], expected_tools)
 
-        pii = security = "not escalated"
-        if client and row["actual"] == "needs_review":
+        pii = security = "not escalated" if args.with_judges else "not run"
+        if args.with_judges and row["actual"] == "needs_review":
             pii, pii_why = judge("ThirdParty.DeepEval.PIILeakage", spans)
             security, security_why = judge("ThirdParty.AutoEval.Security", spans)
 
         rows.append(
             {
                 **row,
-                "routing": routing.label,
+                "routing": routing_label,
                 "trajectory_process": process_label,
                 "trajectory_full": full_label,
                 "pii_leakage": pii,
                 "autoeval_security": security,
             }
         )
-        print(f"  {fixture_id:16s} {routing.label:20s} process={process_label:8s} full={full_label}")
-        if client and row["actual"] == "needs_review":
+        print(f"  {fixture_id:16s} {routing_label:20s} process={process_label:8s} full={full_label}")
+        if args.with_judges and row["actual"] == "needs_review":
             print(f"    note: PIILeakage {pii} | Security {security}")
 
     (args.run / "scored.json").write_text(json.dumps(rows, indent=2, default=str))
@@ -144,8 +154,11 @@ def main() -> None:
     if counts.get("FalseClear"):
         exposure = sum(r["true_total"] for r in rows if r["routing"] == "FalseClear")
         print(f"  false-clear exposure {exposure:.2f} committed without a check")
+    excluded = [r["id"] for r in rows if r["routing"] == "n/a (cross-receipt)"]
+    if excluded:
+        print(f"  not scored           {', '.join(excluded)}: the right answer depends on another receipt")
 
-    if client:
+    if not args.skip_trajectory:
         print("\nB3d process integrity")
         passed = sum(1 for r in rows if r["trajectory_process"] == "Yes")
         full_passed = sum(1 for r in rows if r["trajectory_full"] == "Yes")

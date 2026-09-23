@@ -33,6 +33,8 @@ Statuses: **Selected** is built or being built. **Blocked** is understood but wa
 
 ## Selected
 
+> **Superseded in part, 2026-09-22:** see `2026-09-22-evaluator-pruning.md`. The threshold row and B1 are no longer evaluators, B3 process integrity is parked as a tripwire, B2 now checks every field, and the security judges are opt-in evidence.
+
 | Business metric | Evaluator | Type | Tightness |
 |---|---|---|---|
 | B1 straight-through processing rate | STP outcome from `receipts.status` | code-based | **Tight.** It is the metric, not a proxy |
