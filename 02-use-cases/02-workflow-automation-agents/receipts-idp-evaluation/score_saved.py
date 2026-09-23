@@ -9,6 +9,11 @@ What it adds over the run itself:
   B4  routing outcome, four labels, from the code-based evaluator. Receipts whose right
       answer depends on another receipt (label `cross_receipt`) are left out, because the
       validator sees one receipt at a time and cannot know
+  B4b right reason, `Builtin.GoalSuccessRate` with assertions on the session through the
+      validator: did the validator name the actual problem, not only route correctly. Each
+      receipt's assertions are the problems on its face (label `reason_assertions`) plus one
+      per field extraction accuracy found wrong in this run. Receipts with no assertion are not
+      scored, because an assertion that never engages passes and means nothing
   B2b invented values, `Builtin.ToolParameterAccuracy` on the extractor's submit_expense
       call: did the model put a value into the record that its own input never contained.
       Read beside B2, it splits the blame for a wrong field between the model and the OCR
@@ -45,18 +50,48 @@ HERE = Path(__file__).resolve().parent
 TERMINAL_TOOL = {"processed": "save_expense", "needs_review": "human_review"}
 
 
-def extractor_only(spans: list[dict]) -> list[dict]:
-    """The session up to the end of the extractor agent, which is the first invoke_agent span.
+def _through_agent(spans: list[dict], index: int) -> list[dict]:
+    """The session up to the end of the index-th agent (0 extractor, 1 validator, 2 note writer).
 
     Keeps the root invocation span so the session still has its receipts.* attributes.
     """
-    extractor = next(s for s in spans if s.get("name", "").startswith("invoke_agent"))
-    cutoff = extractor["endTimeUnixNano"]
+    agents = [s for s in spans if s.get("name", "").startswith("invoke_agent")]
+    cutoff = agents[index]["endTimeUnixNano"]
     return [
         s
         for s in spans
         if s.get("name") == "receipts.invocation" or (s.get("startTimeUnixNano", s.get("timeUnixNano")) or 0) <= cutoff
     ]
+
+
+def through_validator(spans: list[dict]) -> list[dict]:
+    """Leaves out the note writer, which repeats the validator's concern and could earn its credit."""
+    return _through_agent(spans, 1)
+
+
+FIELD_NAMES = {"date": "transaction date"}
+
+
+def reason_assertions(label: dict, row: dict) -> list[str]:
+    """Problems the validator should name: those on the receipt, plus each field extracted wrong."""
+    found = list(label.get("reason_assertions") or [])
+    explanation = row.get("extraction_explanation") or ""
+    if "Also wrong:" in explanation:
+        for item in explanation.split("Also wrong:", 1)[1].split(".", 1)[0].split(";"):
+            field = item.strip().split(" ", 1)[0]
+            if field:
+                found.append(f"identifies that the {FIELD_NAMES.get(field, field)} is not supported by the receipt text")
+    if (row.get("dollar_gap") or 0) >= 0.005:
+        found.append("identifies that the total is not supported by the receipt text")
+    return [f"The validation step (submit_validation) {text}." for text in found]
+
+
+def extractor_only(spans: list[dict]) -> list[dict]:
+    """The session up to the end of the extractor agent, which is the first invoke_agent span.
+
+    Keeps the root invocation span so the session still has its receipts.* attributes.
+    """
+    return _through_agent(spans, 0)
 
 
 def parse_args() -> argparse.Namespace:
@@ -68,6 +103,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--skip-parameters", action="store_true", help="Skip ToolParameterAccuracy on the extractor (judge tokens)"
     )
+    parser.add_argument("--skip-reasons", action="store_true", help="Skip the right-reason check (judge tokens)")
     parser.add_argument(
         "--with-judges", action="store_true", help="Also run the third-party security judges (evidence only)"
     )
@@ -84,7 +120,7 @@ def main() -> None:
 
     labels = {entry["id"]: entry for entry in json.loads((args.fixtures / "labels.json").read_text())}
     results = json.loads((args.run / "results.json").read_text())
-    needs_aws = not args.skip_trajectory or not args.skip_parameters or args.with_judges
+    needs_aws = not args.skip_trajectory or not args.skip_parameters or not args.skip_reasons or args.with_judges
     client = boto3.client("bedrock-agentcore", region_name=args.region) if needs_aws else None
 
     def judge(evaluator_id: str, spans: list[dict]):
@@ -127,6 +163,24 @@ def main() -> None:
                 return result.get("label"), result.get("explanation", "")
         return "no result", ""
 
+    def right_reason(spans: list[dict], session_id: str, assertions: list[str]):
+        """GoalSuccessRate against this receipt's assertions, on the session through the validator."""
+        try:
+            response = client.evaluate(
+                evaluatorId="Builtin.GoalSuccessRate",
+                evaluationInput={"sessionSpans": through_validator(spans)},
+                evaluationReferenceInputs=[
+                    {
+                        "context": {"spanContext": {"sessionId": session_id}},
+                        "assertions": [{"text": a} for a in assertions],
+                    }
+                ],
+            )
+        except Exception as exc:  # noqa: BLE001 — report and carry on through the set
+            return f"call failed: {str(exc)[:60]}", ""
+        first = (response.get("evaluationResults") or [{}])[0]
+        return first.get("label") or first.get("errorMessage", "no result"), first.get("explanation", "")
+
     rows = []
     for row in results:
         fixture_id = row["id"]
@@ -157,6 +211,11 @@ def main() -> None:
             expected_tools = ["submit_expense", "submit_validation", TERMINAL_TOOL[label["expected_outcome"]]]
             full_label, _ = trajectory(spans, row["session_id"], expected_tools)
 
+        assertions = reason_assertions(label, row)
+        reason, reason_why = ("skipped" if args.skip_reasons else "n/a"), ""
+        if assertions and not args.skip_reasons:
+            reason, reason_why = right_reason(spans, row["session_id"], assertions)
+
         parameters, parameters_why = "skipped", ""
         if not args.skip_parameters:
             parameters, parameters_why = invented_values(spans)
@@ -170,6 +229,9 @@ def main() -> None:
             {
                 **row,
                 "routing": routing_label,
+                "right_reason": reason,
+                "right_reason_assertions": assertions,
+                "right_reason_explanation": reason_why,
                 "tool_parameter_accuracy": parameters,
                 "tool_parameter_accuracy_explanation": parameters_why,
                 "trajectory_process": process_label,
@@ -179,7 +241,7 @@ def main() -> None:
             }
         )
         print(
-            f"  {fixture_id:16s} {routing_label:20s} parameters={parameters:8s} process={process_label:8s} full={full_label}"
+            f"  {fixture_id:16s} {routing_label:20s} reason={reason:8s} parameters={parameters:8s} process={process_label:8s} full={full_label}"
         )
         if args.with_judges and row["actual"] == "needs_review":
             print(f"    note: PIILeakage {pii} | Security {security}")
@@ -208,6 +270,15 @@ def main() -> None:
     excluded = [r["id"] for r in rows if r["routing"] == "n/a (cross-receipt)"]
     if excluded:
         print(f"  not scored           {', '.join(excluded)}: the right answer depends on another receipt")
+
+    if not args.skip_reasons:
+        checked = [r for r in rows if r["right_reason"] not in ("n/a", "skipped")]
+        named = [r["id"] for r in checked if r["right_reason"] == "Yes"]
+        missed = [r["id"] for r in checked if r["right_reason"] != "Yes"]
+        print("\nB4b right reason, GoalSuccessRate on the validator")
+        print(f"  named the actual problem            {len(named)}/{len(checked)}  {', '.join(named)}")
+        print(f"  missed it                           {len(missed)}  {', '.join(missed)}")
+        print(f"  nothing to name, not scored         {len(rows) - len(checked)}")
 
     if not args.skip_parameters:
         # Beside B2, the two verdicts say whose fault a wrong field is.

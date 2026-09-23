@@ -19,7 +19,7 @@ Every receipts evaluator went back through two rules. Anything that failed eithe
 | `ThirdParty.DeepEval.ToolUse` | **Opt-in evidence** (`--evaluator`) | Scored a correct run 0.25. Assumes a user who asked for something |
 | `ThirdParty.DeepEval.PIILeakage`, `ThirdParty.AutoEval.Security` | **Opt-in evidence** (`--with-judges`) | Neither discriminates. See `2026-09-18-security-judge-verdict.md` |
 | `ReceiptsDollarError` (B2) | **Extended** into `ReceiptsExtractionAccuracy` | Was blind to everything but the total. Now also checks date, merchant, currency, subtotal, tax and tip against the label. `value` is still the dollar gap on the total, so the dollar-weighted rate is unchanged. The old name still resolves |
-| `ReceiptsRoutingOutcome` (B4) | **Kept**, now judged on what the validator was shown, `split_b` excluded | `split_b` has nothing on its face that marks it as half of a split, so the validator cannot know. `duplicate_b` stays in: it is printed "DUPLICATE COPY - REPRINT", so a careful validator can catch it |
+| `ReceiptsRoutingOutcome` (B4) | **Kept**, now judged on what the validator was shown, `duplicate_b` and `split_b` excluded | Both look correct on their own, so the validator cannot know. `duplicate_b` is printed "DUPLICATE COPY - REPRINT", but the OCR step passes the models only the fields Textract recognises plus line items, so that line never reaches the validator. An earlier version of this note kept `duplicate_b` in on the assumption that it did; checking the trace showed it does not |
 | `Builtin.TrajectoryInOrderMatch` | **Parked, unchanged** | See the last section |
 
 The agent now stamps `receipts.merchant`, `receipts.transaction_date`, `receipts.currency`, `receipts.subtotal`, `receipts.tax` and `receipts.tip` on the invocation span, through `_tag_span_outcome`. B2 therefore still reads attributes only, and keeps working with content capture off.
@@ -38,7 +38,7 @@ Run `dataset-25167e6c`, 9 receipts, judges off.
 | non_reconciling | needs_review | needs_review | ReviewCorrect | exact |
 | over_threshold | needs_review | needs_review | ReviewCorrect | exact |
 | duplicate_a | processed | processed | AutoPersistCorrect | exact |
-| duplicate_b | needs_review | processed | **FalseClear** | exact |
+| duplicate_b | needs_review | processed | not scored (was FalseClear) | exact |
 | split_a | processed | needs_review | FalseAlarm | exact |
 | split_b | needs_review | needs_review | not scored | exact |
 | injected | processed | needs_review | ReviewCorrect (was FalseAlarm) | field_error: date 2024-01-01, true 2026-06-28 |
@@ -50,7 +50,7 @@ Run `dataset-25167e6c`, 9 receipts, judges off.
 | B2 dollar-weighted error | 0.00% |
 | B2 receipts with a field besides the total wrong | **3 of 9**, all fabricated dates |
 | B4 review-queue precision | **83%**, 5 of 6 escalations needed (33% before the fix below) |
-| B4 false-clear exposure | 13.49, `duplicate_b` |
+| B4 false clears | 0 once `duplicate_b` is excluded. Its auto-save is a cross-receipt failure, not a validator miss |
 | Duplicate overwrite | `exp-42cb6d4b2972a7ea`, `duplicate_a` then `duplicate_b`. Still present |
 
 **What the extended B2 bought.** The date fabrication was previously only visible in the validator's own reasoning. It is now a number: 3 of 9 receipts, while dollar error still reads 0.00%.
