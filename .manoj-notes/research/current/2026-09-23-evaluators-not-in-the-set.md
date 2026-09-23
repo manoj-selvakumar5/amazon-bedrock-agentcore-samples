@@ -75,7 +75,5 @@ Designs considered to give it a real job, and rejected:
 
 - **A live override guard:** how often the validator overrides a confident extractor. The architecture view should guard the business view against being gamed: the straight-through rate rises if the validator simply stops disagreeing, and this count would show it. Planned, not built.
 - **More labelled data:** roughly 30-50 receipts and 15-20 conversations, for quotable rates.
-- **Shipping the evaluators in the sample's `agentcore.json`**, replacing the copied set. Blocked: the CDK stack source was never committed.
 - **Recording reviewer decisions** (a `resolve_review` tool) and spot-auditing auto-saved receipts. Both would give the labelled evaluators real answers on live traffic.
-- **A deployment** to run the Cedar boundary tests and settle whether totals with cents are blocked.
 - **Correctness on the receipt pipeline:** extraction accuracy and routing already cover it deterministically.

@@ -5,6 +5,8 @@
 
 This note stands on its own. It explains the system under evaluation, the conceptual approach, what was implemented, every kind of test run, and the results, including what did not work.
 
+**Where it lives now.** Everything is packaged as one standalone sample, `02-use-cases/02-workflow-automation-agents/receipts-idp-agent-with-evals/`: the agent, the evaluators and the evaluation harness. It is deployed to us-west-2 and left running. It is meant to replace `receipts-intelligent-document-processing-agent` in the pull request. The older folders stay on the branch until then.
+
 ---
 
 ## 1. The system being evaluated
@@ -87,7 +89,7 @@ These live in the agent rather than the test harness because a deployed trace ha
 
 ### 3.2 A local harness that runs the real code
 
-`02-use-cases/02-workflow-automation-agents/receipts-idp-evaluation/`:
+`evals/` in the sample (first built as `receipts-idp-evaluation/`):
 
 | File | What it does |
 |---|---|
@@ -97,6 +99,7 @@ These live in the agent rather than the test harness because a deployed trace ha
 | `score_saved.py` | Re-scores saved traces with the built-in evaluators through the AgentCore `Evaluate` API, without re-running the agent |
 | `fixtures/conversations.json` | One seeded chat user, 9 expenses (a Kuala Lumpur trip in MYR, two held for review), and 5 scripted conversations with a hand-worked expected answer per turn |
 | `run_chat.py`, `score_chat.py` | Run each conversation as one session with one trace per turn, then score it |
+| `run_deployed.py` | Runs the same receipts and conversations through the **deployed** stack: receipts through the real S3 front door, conversations through the chat Runtime. It collects each session's trace from CloudWatch, waiting until the trace is complete, and writes the same output shape, so the same scorers apply |
 
 ### 3.3 Product change: multi-turn chat
 
@@ -117,16 +120,34 @@ Each chat question used to open a fresh session with no memory, so a follow-up l
 | 2 | `Builtin.ToolParameterAccuracy` on `submit_expense` | Built-in judge | Whether the extractor put in a value its own input never contained | B2 diagnostic | Offline, extractor part of the trace only |
 | 3 | `ReceiptsRoutingOutcome` | Code | The validator's save-or-review call, as one of four outcomes. Judged on what the validator was shown: if the extraction was wrong, review was correct | B4 | Labelled set |
 | 4 | `Builtin.GoalSuccessRate` with assertions | Built-in judge | Whether the validator named the actual problem | B4 diagnostic | Offline, trace through the validator |
-| 5 | `ReceiptsThresholdControl` | Code, control monitor | Whether anything at or above $2,000 saved automatically | B3 | Live-capable |
-| 6 | `ThirdParty.DeepEval.ConversationCompleteness` | Third-party judge | Share of the employee's requests that were handled | C1 | Live-capable |
-| 7 | `ThirdParty.DeepEval.KnowledgeRetention` | Third-party judge | Whether earlier turns are remembered | C1 diagnostic only | Live-capable |
+| 5 | `ReceiptsThresholdControl` | Code, control monitor | Whether anything at or above $2,000 saved automatically | B3 | **Live in AgentCore** (`ReceiptsLive`) |
+| 6 | `ThirdParty.DeepEval.ConversationCompleteness` | Third-party judge | Share of the employee's requests that were handled | C1 | **Live in AgentCore** (`ReceiptsAgent_ChatLive`) |
+| 7 | `ThirdParty.DeepEval.KnowledgeRetention` | Third-party judge | Whether earlier turns are remembered | C1 diagnostic only | **Live in AgentCore** (`ReceiptsAgent_ChatLive`) |
 | 8 | `Builtin.Correctness` with expected answers | Built-in judge | Each chat answer against its expected answer, matched per turn by trace id | C2 | Labelled set |
+
+The three code-based evaluators (1, 3, 5) are deployed as AgentCore evaluators, each its own Lambda built from `evaluators/business_outcomes/`, the same code the harness calls.
 
 **Not evaluators, but reported:**
 - Straight-through rate, as a count over saved statuses.
 - A cross-receipt check for duplicates and split bills. No per-receipt evaluator can see a failure that only exists between receipts.
 
-### 3.5 How some of the design problems were solved
+### 3.5 Deployed to AgentCore
+
+The sample deploys with one command (`./deploy.sh`), with no local container engine: CodeBuild builds the Runtime images, and the evaluator Lambdas are packaged with `uv`.
+
+- **A rebuilt CDK stack.** The original sample's stack source had never been committed, because the repository's root `.gitignore` ignores every `lib/`. It was rebuilt from the sample's documentation and the sibling samples' pattern. A folder-level `.gitignore` exception keeps it in the repository, along with the Runtime's Dockerfile and the env template, which the root rules also ignore. The root file is unchanged.
+- **Two Runtimes from one codebase: pipeline and chat.** Online evaluation selects sessions by service name, so each online configuration scores only its own workload.
+- **Online configurations:**
+  - `ReceiptsLive` is declared in `agentcore.json`.
+  - `ReceiptsAgent_ChatLive` uses managed third-party evaluator ids, which the API accepts and the CloudFormation schema does not yet. So `scripts/chat_online_eval.py` creates it after the stack deploys, with an execution role the stack creates.
+- **The old judges are gone:** the blended judge and the copied `Helpfulness`/`Correctness`/`ToolSelectionAccuracy` online set.
+
+**Fixed while deploying:**
+- **The container exported no traces.** It started with `python main.py`, not under `opentelemetry-instrument`, so observability and every evaluator were blind to the deployed agent. This had been in the original sample since it was first added.
+- **Online evaluation passes the evaluator Lambda neither its name nor its id.** The single name-routing handler returned `UNKNOWN_EVALUATOR`, so each deployed evaluator now has its own entry point.
+- **`npx cdk` ran the project's own app instead of the CDK CLI,** because `package.json` names the app `cdk`. `deploy.sh` now calls the CLI by path.
+
+### 3.6 How some of the design problems were solved
 
 - **Scoping what a judge sees.** In one trace holding three models, a judge scoring the extractor also saw the validator's input, which repeats the extractor's own values. So the harness sends each judge only the part of the trace up to the end of the model it is judging.
 - **Assertions that do not assume a run.** The right-reason assertions come from two places: problems printed on the receipt (stored in the labels), and one assertion per field that extraction accuracy found wrong *in that run*. Receipts with nothing to name are not scored, because an assertion that never engages always passes.
@@ -165,23 +186,33 @@ Each judge was run on real traces and on copies with exactly one thing changed.
 - the window size is fixed
 - chat questions no longer write to the receipt ledger
 
-All 64 unit tests in the sample pass. The code-based evaluators were also checked by calling their handler directly with hand-built spans.
+All 69 unit tests in the sample pass. They include tests that the deployed evaluators route correctly on both the on-demand path (name) and the online path (neither name nor id), and that totals convert to integer cents. The code-based evaluators were also checked by calling their handler directly with hand-built spans.
 
-### 4.4 Deploy-time tests (written, not yet run)
+### 4.4 Live tests against the deployed stack
 
-`tests/test_e2e_cedar_live.py` gains boundary cases against the real Gateway:
-- $2,000.00: denied
-- $1,999: allowed
-- $2,000.50: denied
-- $15.90 and $1,999.99: allowed
+- **User-facing tests:** pipeline, S3 front door, chat identity and IDOR, run ledger, tools, and Cedar. **All pass** after the Cedar fix below: 10 of 10 Cedar tests, 12 of 12 for the rest.
+- **Resilience tests:** ladder flip, the alarm-to-controller loop with its cooldown, and the L4 drain. **4 passed, 1 skipped by design**; the live Bedrock 503 test was already marked as impossible to simulate faithfully.
+- **Cedar boundary cases:**
+  - $2,000 and $2,000.50 denied
+  - $1,999, $1,250.0, $15.90 and $1,999.99 allowed
+  - a save without integer cents denied
 
-The two cases with cents under the limit settle an open question. The policy's own description suggests a total with cents makes the comparison fail and the save be denied. They skip cleanly because no stack is deployed.
+  Before the fix, the $15.90 and $1,999.99 cases failed. See 5.2.
+
+### 4.5 The evaluators against the deployed system
+
+- **Live, in AgentCore:**
+  - `ReceiptsAgent_ChatLive` wrote ConversationCompleteness and KnowledgeRetention scores for each conversation.
+  - `ReceiptsLive` scored a $2,400 receipt `held`, "blocked by the policy".
+- **On demand (`run_deployed.py`):** the 9 labelled receipts through the front door and the 5 conversations through the chat Runtime, scored with the same scorers as local runs. See 5.1.
 
 ---
 
 ## 5. Results
 
-### 5.1 Latest numbers
+### 5.1 Numbers
+
+**Local run** (the real agent code against the stand-in Gateway):
 
 | Measure | Value |
 |---|---|
@@ -195,7 +226,15 @@ The two cases with cents under the limit settle an open question. The policy's o
 | Chat answers correct | 10 of 11 scored turns |
 | Chat completeness | 1.0 on four conversations, 0.5 on the correct refusal |
 
-### 5.2 What the evaluation found in the agent and the product (all kept unfixed)
+**On the deployed stack**, after the Cedar fix:
+- Extraction accuracy found the same 3 invented dates; dollar error 0.00%.
+- `ToolParameterAccuracy` caught 3 of 3 invented values, with the same 1 false alarm.
+- The validator named the actual problem on 4 of 4.
+- The two $13.49 duplicates, approved by the validator, saved automatically.
+- The $2,400 receipt, approved by the validator, was blocked by the `>= $2,000` rule.
+- Chat Correctness: 10 of 12 turns. Both misses were "most recent" answers, caused by the recent-expenses ordering bug below.
+
+### 5.2 What the evaluation found in the agent and the product (kept unfixed, except the Cedar policy)
 
 1. **Invented dates.** On three receipts Textract did not return the printed date, and the extractor made one up (2024-01-01, 1970-01-01, and 2029-11-01 taken from a card expiry) instead of reporting it missing. Dollar error read 0.00% throughout. The validator caught all three.
 2. **Duplicate overwrite.** The expense id is a hash of user, merchant, date and total, and the write replaces any existing row. A second copy of a receipt silently **replaced** the first: data loss presented as deduplication.
@@ -203,7 +242,11 @@ The two cases with cents under the limit settle an open question. The policy's o
 4. **Cedar doing its job.** The validator approved a $2,400 receipt at high confidence, and the policy denied the save. This is the sample's central design claim.
 5. **Reconciliation not enforced in code.** The extractor computes whether subtotal, tax and tip add up, but the orchestrator never reads it. Only the validator's prompt enforces it.
 6. **Chat "most recent" wrong.** The recent-expenses tool promises newest first but sorts by a hashed id. The model trusted the description and named the wrong expense.
-7. **Open:** whether the deployed policy blocks every total with cents.
+7. **The Cedar policy blocked every automatic save (fixed).** The policy compared `total >= 2000`. The Gateway passes totals such as 15.9, and even 1250.0 and 2400.0, as Cedar decimals, and Cedar will not compare a decimal with a whole number. So the policy errored, and a forbid that errors denies.
+   - In the deployed sample nothing saved automatically.
+   - The $2,000 rule only appeared to work, because the error blocked large receipts too.
+   - The local stand-in compared plain numbers, so only a live boundary test could show it.
+   - **Fixed at the user's request:** the orchestrator now sends `total_cents`, an integer, and the policy compares `total_cents >= 200000`, denying a save without it.
 
 ### 5.3 Traps in the evaluators themselves
 
@@ -213,6 +256,8 @@ The two cases with cents under the limit settle an open question. The policy's o
 4. **Judges penalising correct behaviour.** `ToolParameterAccuracy` flags the model's honest low confidence as invented. `ConversationCompleteness` scores a correct refusal as half met.
 5. **No ground truth, no view of correctness.** `ConversationCompleteness` scored a wrong answer 1.0. Only `Correctness` with an expected answer caught it.
 6. **Noise.** `KnowledgeRetention` scored the same unedited conversation 0.67 once and 1.0 twice.
+7. **Live and on-demand evaluation call a code-based evaluator differently.** On demand, the Lambda receives the evaluator's name; online, it received neither the name nor the id. An evaluator that routes on its name works in every local and on-demand test, then fails every live session.
+8. **Deployed traces arrive over minutes.** The SDK's span collector returns as soon as any spans exist, so a trace scored straight away can be half there, and a missing save looks like a skipped step.
 
 ---
 
@@ -220,8 +265,7 @@ The two cases with cents under the limit settle an open question. The policy's o
 
 - 9 receipts and 11 scored chat turns. These show that each evaluator works, not rates that can be quoted.
 - Synthetic receipts, one model, one environment.
-- Nothing is deployed:
-  - The Gateway, tables and Cedar policy ran as local stand-ins.
-  - The sample cannot deploy from the repository as it stands. Its CDK stack source was never committed, because a blanket `lib/` rule in the repository's root ignore file swallowed it.
+- One deployment, one account and Region (us-west-2).
+- The local stand-in for the Gateway is not the real policy engine: it compares plain numbers, which is why the Cedar bug appeared only when deployed. Anything that depends on Cedar's typing needs a live test.
 - `ToolParameterAccuracy` works offline only. A live evaluation configuration scores the whole session, where the trace trap applies.
 - Expected answers and labels are hand-written, so they are part of what is being trusted.
