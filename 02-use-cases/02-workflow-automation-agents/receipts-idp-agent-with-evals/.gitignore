@@ -1,0 +1,29 @@
+# Secrets / local env
+.env
+
+# AgentCore CLI state + generated target file
+agentcore/aws-targets.json
+.cli/
+.agentcore/
+
+# CDK
+agentcore/.cache/
+cdk-outputs.json
+agentcore/cdk/node_modules/
+agentcore/cdk/dist/
+agentcore/cdk/cdk.out/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+uv.lock
+
+# Evaluation run output
+evals/out/
+
+# OS
+.DS_Store
+# The repository root ignores every lib/ directory; this sample commits its CDK stack.
+!agentcore/cdk/lib/
+!agentcore/cdk/lib/**

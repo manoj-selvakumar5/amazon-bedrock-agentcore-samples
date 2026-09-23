@@ -1,0 +1,261 @@
+{
+  "name": "ReceiptsAgent",
+  "version": 1,
+  "managedBy": "CDK",
+  "runtimes": [
+    {
+      "name": "receiptsagent",
+      "description": "Receipts IDP pipeline: OCR, extractor and independent validator agents, Cedar-gated save or human review, with a model degradation ladder",
+      "build": "Container",
+      "entrypoint": "main.py",
+      "codeLocation": "app/receiptsagent",
+      "networkMode": "PUBLIC",
+      "protocol": "HTTP",
+      "instrumentation": {
+        "enableOtel": true
+      },
+      "envVars": [
+        {
+          "name": "_AWS_XRAY_DAEMON_ADDRESS",
+          "value": "localhost:2000"
+        },
+        {
+          "name": "_AWS_XRAY_TRACING_ENABLED",
+          "value": "true"
+        },
+        {
+          "name": "OTEL_METRICS_EXPORTER",
+          "value": "none"
+        },
+        {
+          "name": "OTEL_TRACES_EXPORTER",
+          "value": "otlp"
+        },
+        {
+          "name": "OTEL_EXPORTER_OTLP_PROTOCOL",
+          "value": "http/protobuf"
+        },
+        {
+          "name": "OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED",
+          "value": "true"
+        },
+        {
+          "name": "AGENT_OBSERVABILITY_ENABLED",
+          "value": "true"
+        },
+        {
+          "name": "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
+          "value": "true"
+        },
+        {
+          "name": "OTEL_AWS_APPLICATION_SIGNALS_ENABLED",
+          "value": "true"
+        },
+        {
+          "name": "OTEL_PROPAGATORS",
+          "value": "baggage,tracecontext,xray"
+        },
+        {
+          "name": "AGENT_MODEL_ID",
+          "value": "global.anthropic.claude-opus-4-8"
+        }
+      ]
+    },
+    {
+      "name": "receiptschat",
+      "description": "Receipts chat assistant: read-only, multi-turn questions about a user's own expenses. Same code as the pipeline Runtime; a separate Runtime so chat sessions are evaluated apart from receipt sessions",
+      "build": "Container",
+      "entrypoint": "main.py",
+      "codeLocation": "app/receiptsagent",
+      "networkMode": "PUBLIC",
+      "protocol": "HTTP",
+      "instrumentation": {
+        "enableOtel": true
+      },
+      "envVars": [
+        {
+          "name": "_AWS_XRAY_DAEMON_ADDRESS",
+          "value": "localhost:2000"
+        },
+        {
+          "name": "_AWS_XRAY_TRACING_ENABLED",
+          "value": "true"
+        },
+        {
+          "name": "OTEL_METRICS_EXPORTER",
+          "value": "none"
+        },
+        {
+          "name": "OTEL_TRACES_EXPORTER",
+          "value": "otlp"
+        },
+        {
+          "name": "OTEL_EXPORTER_OTLP_PROTOCOL",
+          "value": "http/protobuf"
+        },
+        {
+          "name": "OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED",
+          "value": "true"
+        },
+        {
+          "name": "AGENT_OBSERVABILITY_ENABLED",
+          "value": "true"
+        },
+        {
+          "name": "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT",
+          "value": "true"
+        },
+        {
+          "name": "OTEL_AWS_APPLICATION_SIGNALS_ENABLED",
+          "value": "true"
+        },
+        {
+          "name": "OTEL_PROPAGATORS",
+          "value": "baggage,tracecontext,xray"
+        },
+        {
+          "name": "AGENT_MODEL_ID",
+          "value": "global.anthropic.claude-opus-4-8"
+        }
+      ]
+    }
+  ],
+  "evaluators": [
+    {
+      "name": "ReceiptsExtractionAccuracy",
+      "level": "SESSION",
+      "description": "B2: dollar gap on the total plus every other field against a labelled answer. Needs ground truth, so it runs on labelled data, not online",
+      "config": {
+        "codeBased": {
+          "managed": {
+            "codeLocation": "evaluators/business_outcomes",
+            "entrypoint": "business_outcomes.handler",
+            "timeoutSeconds": 60
+          }
+        }
+      }
+    },
+    {
+      "name": "ReceiptsRoutingOutcome",
+      "level": "SESSION",
+      "description": "B4: the validator's save-or-review call against a labelled answer, judged on the extraction it was shown. Needs ground truth",
+      "config": {
+        "codeBased": {
+          "managed": {
+            "codeLocation": "evaluators/business_outcomes",
+            "entrypoint": "business_outcomes.handler",
+            "timeoutSeconds": 60
+          }
+        }
+      }
+    },
+    {
+      "name": "ReceiptsThresholdControl",
+      "level": "SESSION",
+      "description": "B3 control monitor: anything at or above the Cedar limit saved automatically. Needs no labels, so it runs online",
+      "config": {
+        "codeBased": {
+          "managed": {
+            "codeLocation": "evaluators/business_outcomes",
+            "entrypoint": "business_outcomes.handler",
+            "timeoutSeconds": 60
+          }
+        }
+      }
+    }
+  ],
+  "onlineEvalConfigs": [
+    {
+      "name": "ReceiptsLive",
+      "agent": "receiptsagent",
+      "evaluators": [
+        "ReceiptsThresholdControl"
+      ],
+      "samplingRate": 100,
+      "description": "Receipt pipeline, live: the Cedar threshold control monitor on every session"
+    }
+  ],
+  "agentCoreGateways": [
+    {
+      "name": "ReceiptsGateway",
+      "description": "MCP Gateway for receipts tools: user profile, recent expenses, merchant lookup, save expense, human review",
+      "targets": [
+        {
+          "name": "get-user-profile",
+          "targetType": "lambdaFunctionArn",
+          "lambdaFunctionArn": {
+            "lambdaArn": "PLACEHOLDER_GET_USER_PROFILE",
+            "toolSchemaFile": "lambdas/schemas/get_user_profile.json"
+          }
+        },
+        {
+          "name": "get-recent-expenses",
+          "targetType": "lambdaFunctionArn",
+          "lambdaFunctionArn": {
+            "lambdaArn": "PLACEHOLDER_GET_RECENT_EXPENSES",
+            "toolSchemaFile": "lambdas/schemas/get_recent_expenses.json"
+          }
+        },
+        {
+          "name": "lookup-merchant",
+          "targetType": "lambdaFunctionArn",
+          "lambdaFunctionArn": {
+            "lambdaArn": "PLACEHOLDER_LOOKUP_MERCHANT",
+            "toolSchemaFile": "lambdas/schemas/lookup_merchant.json"
+          }
+        },
+        {
+          "name": "save-expense",
+          "targetType": "lambdaFunctionArn",
+          "lambdaFunctionArn": {
+            "lambdaArn": "PLACEHOLDER_SAVE_EXPENSE",
+            "toolSchemaFile": "lambdas/schemas/save_expense.json"
+          }
+        },
+        {
+          "name": "human-review",
+          "targetType": "lambdaFunctionArn",
+          "lambdaFunctionArn": {
+            "lambdaArn": "PLACEHOLDER_HUMAN_REVIEW",
+            "toolSchemaFile": "lambdas/schemas/human_review.json"
+          }
+        }
+      ],
+      "authorizerType": "CUSTOM_JWT",
+      "authorizerConfiguration": {
+        "customJwtAuthorizer": {
+          "discoveryUrl": "https://cognito-idp.us-west-2.amazonaws.com/PLACEHOLDER_USER_POOL_ID/.well-known/openid-configuration",
+          "allowedClients": [
+            "PLACEHOLDER_CLIENT_ID"
+          ]
+        }
+      },
+      "enableSemanticSearch": true,
+      "exceptionLevel": "DEBUG",
+      "policyEngineConfiguration": {
+        "policyEngineName": "ReceiptsPolicyEngine",
+        "mode": "ENFORCE"
+      }
+    }
+  ],
+  "policyEngines": [
+    {
+      "name": "ReceiptsPolicyEngine",
+      "description": "Cedar policy engine for receipts authorization — allow-all + selective deny on save-expense over a threshold (routes to human review)",
+      "policies": [
+        {
+          "name": "AllowAllTools",
+          "description": "Permit all tool calls on the receipts gateway for authenticated agents",
+          "statement": "permit(principal, action, resource is AgentCore::Gateway);",
+          "validationMode": "IGNORE_ALL_FINDINGS"
+        },
+        {
+          "name": "BlockExcessiveExpense",
+          "description": "Forbid SAVING an expense with total >= $2,000; the agent routes it to human_review instead. Guard order matters (Cedar && short-circuits): (1) `context has input` FIRST so the statement is valid for actions like AgentCore::Action::Http that have no input (omitting this fails policy-engine CREATE with 'attribute input not found' — IGNORE_ALL_FINDINGS does NOT suppress it); (2) `!(context.input has reason)` scopes to the save path (human_review requires reason, save_expense has none), so the review fallback is never blocked; (3) the >= 2000 threshold. NOTE: integer totals get exact semantics; a fractional total makes the decimal-vs-Long comparison error and (forbid-fails-closed) routes that save to review too — a safe, conservative 'when in doubt, review' outcome (spec §5.5).",
+          "statement": "forbid(principal, action, resource is AgentCore::Gateway) when { context has input && !(context.input has reason) && context.input has total && context.input.total >= 2000 };",
+          "validationMode": "IGNORE_ALL_FINDINGS"
+        }
+      ]
+    }
+  ]
+}
