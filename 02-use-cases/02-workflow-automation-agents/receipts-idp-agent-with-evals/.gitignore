@@ -24,6 +24,9 @@ evals/out/
 
 # OS
 .DS_Store
-# The repository root ignores every lib/ directory; this sample commits its CDK stack.
+# The repository root ignores every lib/ directory, every Dockerfile and .env.*; this
+# sample commits its CDK stack, the Runtime's Dockerfile and the env template.
 !agentcore/cdk/lib/
 !agentcore/cdk/lib/**
+!app/receiptsagent/Dockerfile
+!.env.example
