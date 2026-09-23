@@ -55,6 +55,26 @@ Every verdict is right, and every "No" names the right field for the right reaso
 
 On C, C2 and D the judge also called `confidence` fabricated, because 72 or 60 does not appear in the OCR (which reports its own 98-99). Confidence is the model's own judgement, not a value to copy. All three verdicts were right anyway, because the date was genuinely invented. But a correct extraction with an honest low confidence may be scored "No" for confidence alone. Test that before quoting a false-positive rate.
 
+## Offline run over all 9 receipts, extractor-only
+
+Scored on the `submit_expense` call, with the trace cut at the end of the extractor. Results are in `out/contrast-tpa/offline-run.json`.
+
+| Receipt | ToolParameterAccuracy | B2 | What it flagged |
+|---|---|---|---|
+| clean | No | field_error | the invented date 2024-01-01 |
+| injected | No | field_error | the invented date 2024-01-01 |
+| pii_heavy | No | field_error | the date built from the card expiry |
+| non_reconciling | **No** | exact | **only `confidence: 40`**. False positive |
+| over_threshold, duplicate_a, duplicate_b, split_a, split_b | Yes | exact | nothing |
+
+**Caught 3 of 3 invented values, each for the right reason, and missed none. One false positive out of 4 "No" verdicts.** About 2,000 judge tokens per call.
+
+**The false positive is repeatable and ironic.** `non_reconciling` came back "No" on 3 of 3 repeat runs, flagging only confidence. The judge even noted the totals do not reconcile, "which might explain low confidence". It still called 40 fabricated because the number is not in the input. The extractor prompt tells the model to set a LOW confidence when the numbers do not add up. So the judge penalises the model for doing exactly what it was told.
+
+**It is also inconsistent.** Lowering `duplicate_a`'s confidence from 97 to 55 on a correct, reconciling extraction still scored "Yes". Confidence triggers a "No" sometimes, not always.
+
+**Why:** `submit_expense` mixes two kinds of parameter. Most are values copied from the receipt. `confidence` is the model's own judgement, which has no source to trace. The judge has no way to tell them apart, so any tool that asks the model for a self-assessment alongside extracted values will produce this noise.
+
 ## Not scored
 
 It also returns verdicts for `submit_validation` and `save_expense`. On `save_expense` it said "No", because the orchestrator fills rung, status and the S3 path in code. That call is not a model decision, so its verdict is ignored.

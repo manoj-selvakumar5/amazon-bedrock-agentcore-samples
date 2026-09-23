@@ -26,6 +26,8 @@ The agent now stamps `receipts.merchant`, `receipts.transaction_date`, `receipts
 
 End state: **two evaluators, one per model.** Extraction accuracy judges the extractor. Routing judges the validator.
 
+**Later the same day, a third:** `Builtin.ToolParameterAccuracy` on the extractor's `submit_expense` call, added to `score_saved.py` after it passed a contrast test on the extractor's part of the trace. It asks whether the model invented a value, which B2 cannot answer. See `2026-09-22-tool-parameter-accuracy-contrast.md`.
+
 ## The new run
 
 Run `dataset-25167e6c`, 9 receipts, judges off.
@@ -53,7 +55,7 @@ Run `dataset-25167e6c`, 9 receipts, judges off.
 
 **What the extended B2 bought.** The date fabrication was previously only visible in the validator's own reasoning. It is now a number: 3 of 9 receipts, while dollar error still reads 0.00%.
 
-One correction to earlier notes: the date **is** printed on these receipts. The validator's reasoning says "the OCR contained no explicit transaction date", so Textract is dropping the printed date line, and the extractor then invents one instead of reporting it missing. Two failures, not one. The fix for the second (report absence rather than guess) is a prompt or schema change to the extractor.
+One correction to earlier notes: the date **is** printed on these receipts. The validator's reasoning says "the OCR contained no explicit transaction date", so Textract is dropping the printed date line, and the extractor then invents one instead of reporting it missing. Two failures, not one. **The extractor is deliberately left as it is.** The blog's story is the evaluators catching real failures, and this is the clearest one: dollar error reads 0.00% while extraction accuracy flags 3 of 9. Fixing the extractor would remove the evidence.
 
 ## The finding this run exposed: B2 and B4 count the same failure twice
 
@@ -76,6 +78,7 @@ The user likes the evaluator and will come back to it. The conclusions so far:
 
 ## Still open
 
-- The extractor inventing a date when OCR finds none.
+The date fabrication is not on this list on purpose: it stays as evidence for the blog.
+
 - Product fixes: the dedup overwrite, reconciliation enforced in code, a split check in code.
 - Trajectory: parked.
