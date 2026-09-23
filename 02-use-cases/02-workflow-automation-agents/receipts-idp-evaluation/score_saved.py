@@ -20,7 +20,7 @@ What it adds over the run itself:
   B3d process integrity, `Builtin.TrajectoryInOrderMatch` through the Evaluate API
   S1  opt-in with --with-judges: the reviewer note scored by PIILeakage and AutoEval
       Security. Kept as evidence only; neither discriminates on this workload, see
-      .manoj-notes/research/2026-09-18-security-judge-verdict.md
+      .manoj-notes/research/archive/2026-09-18-security-judge-verdict.md
 
 The trajectory check runs twice on purpose:
 
@@ -34,7 +34,7 @@ The first is the sample's design claim. The second is B4 wearing a different hat
 ToolParameterAccuracy is sent the extractor's part of the trace only. On the whole session
 the judge also sees the validator's and the note writer's inputs, which repeat the
 extractor's own values, so an invented value looks sourced. See
-.manoj-notes/research/2026-09-22-tool-parameter-accuracy-contrast.md. For the same reason it
+.manoj-notes/research/current/2026-09-22-tool-parameter-accuracy-contrast.md. For the same reason it
 cannot run in an online config yet, which scores the whole session.
 
 Usage:
