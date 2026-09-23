@@ -9,8 +9,9 @@ What it stands in for:
 - The save_expense and human_review Lambda targets: writes go to an in-memory dict.
 - The get_user_profile, get_recent_expenses and lookup_merchant read targets the chat
   assistant uses, reading the same dict plus seeded profiles.
-- The Cedar policy BlockExcessiveExpense: a save with total >= 2000 is rejected with a
-  "denied by policy" error, which main.py's _is_denied() already recognises.
+- The Cedar policy BlockExcessiveExpense: a save with total_cents >= 200000, or with no
+  total_cents at all, is rejected with a "denied by policy" error, which main.py's
+  _is_denied() already recognises.
 
 Run on its own:     python local_gateway.py
 Start from a script: url = start_in_background()
@@ -32,8 +33,8 @@ HOST = "127.0.0.1"
 PORT = 8765
 URL = f"http://{HOST}:{PORT}/mcp"
 
-# Mirrors the Cedar policy BlockExcessiveExpense in agentcore/agentcore.json.
-POLICY_THRESHOLD = 2000
+# Mirrors the Cedar policy BlockExcessiveExpense in agentcore/agentcore.json, in cents.
+POLICY_THRESHOLD_CENTS = 200000
 
 # Set False to run as if the policy were detached or in log-only mode, so the control
 # monitor can be seen catching a control that is not there.
@@ -76,6 +77,7 @@ def save_expense(
     user_id: str,
     merchant: str,
     total: float,
+    total_cents: int | None = None,
     merchant_address: str = "",
     transaction_date: str = "",
     currency: str = "USD",
@@ -90,8 +92,11 @@ def save_expense(
     source_receipt_s3: str = "",
 ) -> str:
     """Persist a validated expense record for a user."""
-    if POLICY_ENABLED and total >= POLICY_THRESHOLD:
-        raise ToolError(f"Tool call denied by policy BlockExcessiveExpense: total {total} >= {POLICY_THRESHOLD}")
+    if POLICY_ENABLED and (total_cents is None or total_cents >= POLICY_THRESHOLD_CENTS):
+        raise ToolError(
+            f"Tool call denied by policy BlockExcessiveExpense: total_cents {total_cents} "
+            f"is missing or >= {POLICY_THRESHOLD_CENTS}"
+        )
 
     expense_id = _expense_id(user_id, merchant, transaction_date, total)
     EXPENSES[expense_id] = {

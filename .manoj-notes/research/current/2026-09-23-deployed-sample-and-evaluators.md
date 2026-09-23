@@ -54,7 +54,7 @@ The 9 labelled receipts went through the front door, and the 5 conversations thr
 - **ConversationCompleteness:** 1.0 on both misses' conversations except one (0.67 on `merchant_followups`), and 0.5 on the correct refusal.
 - **KnowledgeRetention:** 1.0 everywhere.
 
-## The main new finding: the Cedar policy blocks every save
+## The main new finding: the Cedar policy blocked every save (now fixed)
 
 The Cedar policy compares `context.input.total >= 2000`. The agent sends every total as a decimal (15.9, 13.49, even 1250.0 and 2400.0), and the deployed engine errors on a decimal: "type error: expected long, got decimal". A forbid policy that errors denies. So **every automatic save is blocked**, whatever the amount:
 - `duplicate_a` ($13.49) and `split_a` ($1,250.0) were approved by the validator (`AUTO_PERSIST`) and still sent to review.
@@ -65,7 +65,16 @@ Consequences:
 2. **The $2,000 control holds for the wrong reason.** `over_threshold` was blocked by the type error, not the rule. The monitor reports `held, blocked by the policy`, which is true but cannot show that the rule never ran.
 3. **Routing blames the validator for Cedar's block.** `duplicate_a` and `split_a` count as false alarms. As a business number the queue precision is still right (those escalations were unneeded), but the cause is Cedar, not validator caution. The local stand-in compares plain numbers, so no local run could show any of this.
 
-Kept unfixed, as evidence, per the standing decision on product bugs. The two boundary tests stay failing because they assert the correct business behaviour.
+**Fixed the same day, at the user's request.** The orchestrator now sends `total_cents` (an integer) with every save. The policy compares `total_cents >= 200000` and denies a save without it (fail closed). A decimal-only comparison would not work, because the Gateway passes `2000` as a whole number and `2000.0` as a decimal.
+
+Verified live:
+- **All 10 Cedar tests pass:** $15.90, $1,250.0 and $1,999.99 allowed; $2,000, $2,000.50 and $2,400 denied; a save without cents denied.
+- **The other user-facing live tests pass:** 12 of 12.
+- **Labelled receipts through the front door:**
+  - `duplicate_a` and `duplicate_b` ($13.49, validator `AUTO_PERSIST`) now **save**, which also brings back the duplicate overwrite, still kept as evidence.
+  - `over_threshold` ($2,400, validator `AUTO_PERSIST`) is blocked by the actual `>= $2,000` rule.
+  - Every other review is the validator's own decision.
+  - Each hold now has one clear owner.
 
 ## Still open
 

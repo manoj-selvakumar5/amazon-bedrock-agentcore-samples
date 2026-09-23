@@ -34,7 +34,7 @@ from memory.session import get_memory_session_manager
 from mcp.client.streamable_http import streamablehttp_client
 from model.ladder import classify_model_error, get_active_rung, next_rung, rung_for
 from model.load import load_model
-from parsing import build_run_event, parse_payload
+from parsing import build_run_event, parse_payload, to_cents
 from strands import Agent
 from strands.agent.conversation_manager import SlidingWindowConversationManager
 from strands.tools.mcp import MCPClient
@@ -350,6 +350,8 @@ def _process(payload, context=None):
                         "tip": expense["tip"],
                         "payment_method": expense["payment_method"],
                         "status": "processed",
+                        # The amount the Cedar policy checks, as integer cents (see to_cents).
+                        "total_cents": to_cents(expense["total"]),
                     },
                 )
                 if _is_denied(save_result):
