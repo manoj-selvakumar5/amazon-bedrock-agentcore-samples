@@ -66,8 +66,32 @@ def runtime_log_group(runtime_arn: str) -> str:
     return f"/aws/bedrock-agentcore/runtimes/{runtime_arn.rsplit('/', 1)[-1]}-DEFAULT"
 
 
-def find_session_id(logs, s3_uri: str, start: datetime, end: datetime) -> str | None:
-    """The pipeline session that processed this receipt, from the receipts.s3_uri span attribute."""
+def collect_settled(
+    collector, session_id: str, start: datetime, end: datetime, min_traces: int = 1, settle_seconds: int = 45, max_rounds: int = 16
+):
+    """Collect a session's spans, re-querying until the trace is complete.
+
+    Spans reach CloudWatch over several minutes, and the SDK collector returns as soon as it
+    finds any, so a single call can return half a trace; scoring it would look like a
+    skipped step. Arrival also pauses, so an unchanged count alone is not proof. Complete
+    means: at least `min_traces` traces (one per chat turn) and a count that held still.
+    """
+    spans: list[dict] = []
+    for _ in range(max_rounds):
+        latest = collector.collect(session_id, start, end + timedelta(minutes=10))
+        traces = {s.get("traceId") for s in latest if s.get("startTimeUnixNano")}
+        if spans and len(latest) == len(spans) and len(traces) >= min_traces:
+            return latest
+        spans = latest
+        time.sleep(settle_seconds)
+    return spans
+
+
+def find_session_id(logs, s3_uri: str, start: datetime, end: datetime, log_groups: list[str]) -> str | None:
+    """The pipeline session that processed this receipt, from the receipts.s3_uri span attribute.
+
+    Spans land in aws/spans and in the Runtime's own log group, so both are searched.
+    """
     query = (
         "fields attributes.session.id as sid"
         f'\n| filter attributes.receipts.s3_uri = "{s3_uri}"'
@@ -75,7 +99,7 @@ def find_session_id(logs, s3_uri: str, start: datetime, end: datetime) -> str | 
         "\n| limit 1"
     )
     qid = logs.start_query(
-        logGroupName="aws/spans",
+        logGroupNames=log_groups,
         startTime=int(start.timestamp()),
         endTime=int(end.timestamp()),
         queryString=query,
@@ -104,7 +128,8 @@ def run_receipts(args, boto3, outs: dict[str, str], collector_cls) -> Path:
     logs = boto3.client("logs", region_name=region)
     runs = boto3.resource("dynamodb", region_name=region).Table("ReceiptsAgent-ProcessingRuns")
     bucket = output(outs, "", prefix="InfraInboxBucketName")
-    collector = collector_cls(log_group_name=runtime_log_group(output(outs, "RuntimeArn")), region=region)
+    pipeline_logs = runtime_log_group(output(outs, "RuntimeArn"))
+    collector = collector_cls(log_group_name=pipeline_logs, region=region)
 
     labels = {entry["id"]: entry for entry in json.loads((args.fixtures / "labels.json").read_text())}
     run_tag = uuid.uuid4().hex[:8]
@@ -151,11 +176,16 @@ def run_receipts(args, boto3, outs: dict[str, str], collector_cls) -> Path:
     results = []
     for fixture_id, uri in uploaded.items():
         label = labels[fixture_id]
-        session_id = find_session_id(logs, uri, started, ended + timedelta(minutes=5))
+        session_id = None
+        for _ in range(10):  # the session's spans may still be arriving
+            session_id = find_session_id(logs, uri, started, datetime.now(timezone.utc), ["aws/spans", pipeline_logs])
+            if session_id:
+                break
+            time.sleep(30)
         if not session_id:
-            print(f"  {fixture_id:16s} no session found in aws/spans")
+            print(f"  {fixture_id:16s} no session found in the spans")
             continue
-        spans = collector.collect(session_id, started, ended)
+        spans = collect_settled(collector, session_id, started, ended)
         case_dir = run_dir / fixture_id
         case_dir.mkdir(exist_ok=True)
         (case_dir / "adot.json").write_text(json.dumps(spans, indent=2, default=str))
@@ -225,7 +255,9 @@ def run_chat(args, boto3, outs: dict[str, str], collector_cls) -> Path:
             transcript.append({"user": text, "agent": answer})
             print(f"  you>   {text}")
             print(f"  agent> {answer.strip()[:200]}")
-        spans = collector.collect(session_id, started, datetime.now(timezone.utc))
+        spans = collect_settled(
+            collector, session_id, started, datetime.now(timezone.utc), min_traces=len(conversation["turns"])
+        )
         case_dir = run_dir / conversation["id"]
         case_dir.mkdir(exist_ok=True)
         (case_dir / "adot.json").write_text(json.dumps(spans, indent=2, default=str))

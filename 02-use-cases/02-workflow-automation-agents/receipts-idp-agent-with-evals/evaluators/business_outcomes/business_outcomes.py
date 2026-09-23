@@ -241,17 +241,40 @@ def _threshold_control(attributes: dict) -> EvaluatorOutput:
 def handler(input: EvaluatorInput, context) -> EvaluatorOutput:
     """Route to the metric this registration asks for."""
     attributes = _receipt_attributes(input.session_spans)
-    name = (input.evaluator_name or "").strip()
+    # On-demand evaluation passes the evaluator name ("ReceiptsAgent_ReceiptsRoutingOutcome");
+    # online evaluation passes only the id, which is the name plus a suffix
+    # ("ReceiptsAgent_ReceiptsThresholdControl-cxrwrs9ZLp"). Route on whichever arrived.
+    name = (input.evaluator_name or input.evaluator_id or "").strip()
 
     # ReceiptsDollarError is the name B2 was first registered under; kept so older runs resolve.
-    if name.endswith("ReceiptsExtractionAccuracy") or name.endswith("ReceiptsDollarError"):
+    if "ReceiptsExtractionAccuracy" in name or "ReceiptsDollarError" in name:
         return _extraction_accuracy(attributes, _label(input))
-    if name.endswith("ReceiptsRoutingOutcome"):
+    if "ReceiptsRoutingOutcome" in name:
         return _routing_outcome(attributes, _label(input))
-    if name.endswith("ReceiptsThresholdControl"):
+    if "ReceiptsThresholdControl" in name:
         return _threshold_control(attributes)
 
     return EvaluatorOutput(
         errorCode="UNKNOWN_EVALUATOR",
         errorMessage=f"no metric registered under the name {name!r}",
     )
+
+
+# One entry point per deployed evaluator. Each evaluator is its own Lambda, and the online
+# evaluation path does not reliably pass the evaluator's name or id in the event, so the
+# deployed functions must not route on it. `handler` above stays for on-demand and local use.
+
+
+@custom_code_based_evaluator()
+def extraction_accuracy_handler(input: EvaluatorInput, context) -> EvaluatorOutput:
+    return _extraction_accuracy(_receipt_attributes(input.session_spans), _label(input))
+
+
+@custom_code_based_evaluator()
+def routing_outcome_handler(input: EvaluatorInput, context) -> EvaluatorOutput:
+    return _routing_outcome(_receipt_attributes(input.session_spans), _label(input))
+
+
+@custom_code_based_evaluator()
+def threshold_control_handler(input: EvaluatorInput, context) -> EvaluatorOutput:
+    return _threshold_control(_receipt_attributes(input.session_spans))
