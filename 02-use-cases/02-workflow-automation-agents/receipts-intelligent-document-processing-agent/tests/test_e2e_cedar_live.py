@@ -4,6 +4,8 @@ Cedar runs at the GATEWAY, not in the Lambda — so this drives a real MCP tool 
 through the gateway with the agent's own M2M token, deterministically (no LLM):
   - save_expense with total >= $2000  -> DENIED by BlockExcessiveExpense
   - save_expense with a small total   -> ALLOWED (AllowAllTools)
+  - the boundaries: exactly $2000 denied, $1999 allowed, and totals with cents on both
+    sides of the limit, which settles how the policy treats a fractional total
 
 Requires a deployed stack (run via `make e2e`); skips cleanly otherwise.
 """
@@ -114,6 +116,27 @@ def test_over_threshold_save_is_denied_by_cedar():
 def test_under_threshold_save_is_allowed():
     denied, raw = _call_save_expense(12)
     assert not denied, f"$12 save_expense should be ALLOWED; got: {raw[:400]}"
+
+
+@pytest.mark.parametrize(
+    "total, should_deny",
+    [
+        (2000, True),  # the boundary: >= means the limit itself is blocked
+        (1999, False),
+        (2000.50, True),  # over the limit with cents: denied whether the comparison works or fails closed
+        # Under the limit with cents. The policy description says a fractional total makes the
+        # decimal-vs-Long comparison error and the forbid fail closed. If so this is DENIED, and
+        # every real receipt with cents goes to review instead of saving. This pins which it is.
+        (15.90, False),
+        (1999.99, False),
+    ],
+)
+def test_threshold_boundaries(total, should_deny):
+    denied, raw = _call_save_expense(total)
+    assert denied == should_deny, (
+        f"save_expense total={total}: expected {'DENIED' if should_deny else 'ALLOWED'}, got "
+        f"{'DENIED' if denied else 'ALLOWED'}: {raw[:400]}"
+    )
 
 
 def _call_tool(tool_suffix: str, args: dict) -> "tuple[bool, str]":

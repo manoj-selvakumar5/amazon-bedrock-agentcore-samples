@@ -56,6 +56,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--only", help="Comma-separated fixture ids, for a partial run")
     parser.add_argument("--fixtures", type=Path, default=HERE / "fixtures")
     parser.add_argument("--out", type=Path, default=HERE / "out")
+    parser.add_argument(
+        "--without-policy",
+        action="store_true",
+        help="Run as if the Cedar policy were detached, to see the control monitor catch it",
+    )
     return parser.parse_args()
 
 
@@ -68,6 +73,7 @@ def main() -> None:
     sys.path.insert(0, str(HERE / "evaluators"))
     import local_gateway
 
+    local_gateway.POLICY_ENABLED = not args.without_policy
     gateway_url = local_gateway.start_in_background()
 
     for name in DEPLOYED_ONLY_ENV:
@@ -148,6 +154,7 @@ def main() -> None:
 
         status = _receipt_attributes(spans).get("receipts.status")
         extraction = score("ReceiptsExtractionAccuracy", spans, label)
+        control = score("ReceiptsThresholdControl", spans)
         results.append(
             {
                 "id": fixture_id,
@@ -158,6 +165,8 @@ def main() -> None:
                 "dollar_gap": extraction.value,
                 "extraction_label": extraction.label,
                 "extraction_explanation": extraction.explanation,
+                "threshold_control": control.label,
+                "threshold_control_explanation": control.explanation,
                 "session_id": session_id["value"],
             }
         )
@@ -187,6 +196,13 @@ def main() -> None:
     print(f"      a field besides the total wrong   {len(field_errors)}/{len(results)}")
     for row in field_errors:
         print(f"        {row['id']}: {row['extraction_explanation']}")
+
+    # Control monitor: not agent quality, whether the Cedar limit held
+    breaches = [r for r in results if r["threshold_control"] == "breach"]
+    held = [r for r in results if r["threshold_control"] == "held"]
+    print(f"\nThreshold control{' (policy switched OFF for this run)' if args.without_policy else ''}")
+    print(f"  at or above the limit and held        {len(held)}  {', '.join(r['id'] for r in held)}")
+    print(f"  at or above the limit and SAVED       {len(breaches)}  {', '.join(r['id'] for r in breaches)}")
 
     # Only visible across receipts
     print("\nCross-receipt checks")

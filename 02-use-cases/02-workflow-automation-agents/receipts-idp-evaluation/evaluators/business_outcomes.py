@@ -8,12 +8,17 @@ score. Deploying one function rather than one per metric.
                                     total, plus date, merchant, currency, subtotal, tax, tip
     ReceiptsRoutingOutcome      B4  was the escalation, or the auto-save, the right call
 
-One evaluator per model decision: the extractor reading the receipt, the validator choosing
-save or review. Controls the code enforces, such as the Cedar threshold, are not re-checked
-here, and straight-through rate is a count over B4's outcomes rather than an evaluator.
+    ReceiptsThresholdControl    control monitor, not agent quality: did anything at or above
+                                the Cedar limit save automatically
+
+The first two judge model decisions: the extractor reading the receipt, the validator
+choosing save or review. The third judges no model. It watches a deterministic control that
+can still fail in production: a policy edited or detached, an engine in log-only mode, a
+deploy without it. It needs no labels, so unlike the other two it can run on live traffic.
+Straight-through rate is a count over B4's outcomes rather than an evaluator.
 
 Each reads span attributes the agent stamps on the invocation span, never message content,
-so both keep working when prompt and completion capture is switched off.
+so all three keep working when prompt and completion capture is switched off.
 
 Duplicates and splits are deliberately not here. That failure exists between receipts, so a
 per-session evaluator cannot see it. It lives in the dataset scorer locally.
@@ -33,6 +38,9 @@ from bedrock_agentcore.evaluation.custom_code_based_evaluators import (
     EvaluatorOutput,
     custom_code_based_evaluator,
 )
+
+# Mirrors the Cedar policy BlockExcessiveExpense in agentcore/agentcore.json.
+POLICY_THRESHOLD = 2000.0
 
 # A receipt is material when a single error exceeds this. Reported alongside the rate,
 # because one large miss and a hundred small ones need different responses.
@@ -198,6 +206,37 @@ def _routing_outcome(attributes: dict, label: dict) -> EvaluatorOutput:
     )
 
 
+def _threshold_control(attributes: dict) -> EvaluatorOutput:
+    """Control monitor. A breach is money at or above the limit saved with no person involved.
+
+    It reads the total the agent saved, which is the total the policy was shown. So it cannot
+    catch a misread total slipping under the limit; that is extraction accuracy's job. What
+    it catches is the policy not doing its job on the value it was given.
+    """
+    status = attributes.get("receipts.status")
+    total = attributes.get("receipts.total")
+    if not status or total is None:
+        return EvaluatorOutput(
+            errorCode="MISSING_REQUIRED_FIELD",
+            errorMessage="needs receipts.status and receipts.total on the span",
+        )
+    total = float(total)
+    if status == "processed" and total >= POLICY_THRESHOLD:
+        return EvaluatorOutput(
+            value=1.0,
+            label="breach",
+            explanation=f"{total:.2f} saved automatically at or above the {POLICY_THRESHOLD:.0f} limit. The control did not hold",
+        )
+    if total >= POLICY_THRESHOLD:
+        how = "blocked by the policy" if attributes.get("receipts.cedar_blocked") else "held by the validator first"
+        return EvaluatorOutput(
+            value=0.0, label="held", explanation=f"{total:.2f} is at or above the limit and was {how}"
+        )
+    return EvaluatorOutput(
+        value=0.0, label="not_engaged", explanation=f"{total:.2f} is below the limit, so the control was not tested"
+    )
+
+
 @custom_code_based_evaluator()
 def handler(input: EvaluatorInput, context) -> EvaluatorOutput:
     """Route to the metric this registration asks for."""
@@ -209,6 +248,8 @@ def handler(input: EvaluatorInput, context) -> EvaluatorOutput:
         return _extraction_accuracy(attributes, _label(input))
     if name.endswith("ReceiptsRoutingOutcome"):
         return _routing_outcome(attributes, _label(input))
+    if name.endswith("ReceiptsThresholdControl"):
+        return _threshold_control(attributes)
 
     return EvaluatorOutput(
         errorCode="UNKNOWN_EVALUATOR",

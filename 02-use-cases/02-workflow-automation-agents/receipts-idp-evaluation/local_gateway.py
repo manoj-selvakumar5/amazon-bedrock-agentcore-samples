@@ -35,6 +35,10 @@ URL = f"http://{HOST}:{PORT}/mcp"
 # Mirrors the Cedar policy BlockExcessiveExpense in agentcore/agentcore.json.
 POLICY_THRESHOLD = 2000
 
+# Set False to run as if the policy were detached or in log-only mode, so the control
+# monitor can be seen catching a control that is not there.
+POLICY_ENABLED = True
+
 # Everything the pipeline wrote, keyed by expenseId. A second write to the same id
 # overwrites the first, exactly as `put_item` does in the real save_expense Lambda.
 EXPENSES: dict[str, dict[str, Any]] = {}
@@ -86,7 +90,7 @@ def save_expense(
     source_receipt_s3: str = "",
 ) -> str:
     """Persist a validated expense record for a user."""
-    if total >= POLICY_THRESHOLD:
+    if POLICY_ENABLED and total >= POLICY_THRESHOLD:
         raise ToolError(f"Tool call denied by policy BlockExcessiveExpense: total {total} >= {POLICY_THRESHOLD}")
 
     expense_id = _expense_id(user_id, merchant, transaction_date, total)
