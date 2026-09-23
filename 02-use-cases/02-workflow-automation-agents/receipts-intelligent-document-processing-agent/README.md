@@ -127,8 +127,15 @@ via the Gateway read tools:
 python3 scripts/chat.py --user alex            # interactive REPL
 # you> how much did I spend at Mr D.I.Y.?
 # agent> MYR 68.01 across 2 expenses: ...
+# you> and at Starbucks?
+# agent> ...
 python3 scripts/ask.py --user alex "what are my most recent expenses?"   # one-shot
 ```
+
+The REPL keeps one Runtime session for the whole chat, so follow-ups are answered with the
+earlier turns in view. History is held per verified user and session inside the session's
+microVM: a session id replayed under another identity starts empty, and a one-shot `ask.py`
+question stands alone. Chat questions do not write to the receipt run ledger.
 
 **Security ([ADR-0016](docs/decisions/0016-conversational-identity-no-idor.md)):** the
 `user_id` is **not** trusted from the request body — it comes from a KMS-HMAC-signed

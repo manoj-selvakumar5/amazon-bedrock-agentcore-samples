@@ -46,7 +46,8 @@ def _stack_out(region: str, stack: str, key_substr: str) -> str:
     raise SystemExit(f"stack output *{key_substr}* not found")
 
 
-def ask(question: str, user_id: str, region: str, stack: str) -> str:
+def ask(question: str, user_id: str, region: str, stack: str, session_id: str | None = None) -> str:
+    """One question. Pass the same session_id across calls to keep a conversation going."""
     runtime_arn = _stack_out(region, stack, "RuntimeArn")
     key_id = _stack_out(region, stack, "IdentityKeyId")
     token = mint_identity(user_id, key_id, region)
@@ -54,7 +55,7 @@ def ask(question: str, user_id: str, region: str, stack: str) -> str:
     client = boto3.client("bedrock-agentcore", region_name=region)
     resp = client.invoke_agent_runtime(
         agentRuntimeArn=runtime_arn,
-        runtimeSessionId=f"chat-{uuid.uuid4().hex}",
+        runtimeSessionId=session_id or f"chat-{uuid.uuid4().hex}",
         # NOTE: user_id is NOT trusted from here — only the signed identity_token is.
         payload=json.dumps({"question": question, "identity_token": token}).encode(),
     )

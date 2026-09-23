@@ -2,11 +2,13 @@
 
 The receipts pipeline reaches save_expense and human_review through an MCP client
 (`gateway.call_tool_sync` in main.py), not through agent tools. This FastMCP server
-exposes the same two tools on localhost, so the pipeline runs unchanged with no
-deployed Gateway, Lambda targets, DynamoDB table, or Cedar policy.
+exposes the same tools on localhost, so the pipeline and the chat assistant run unchanged
+with no deployed Gateway, Lambda targets, DynamoDB tables, or Cedar policy.
 
 What it stands in for:
 - The save_expense and human_review Lambda targets: writes go to an in-memory dict.
+- The get_user_profile, get_recent_expenses and lookup_merchant read targets the chat
+  assistant uses, reading the same dict plus seeded profiles.
 - The Cedar policy BlockExcessiveExpense: a save with total >= 2000 is rejected with a
   "denied by policy" error, which main.py's _is_denied() already recognises.
 
@@ -16,6 +18,7 @@ Start from a script: url = start_in_background()
 
 import hashlib
 import json
+import re
 import socket
 import threading
 import time
@@ -40,7 +43,18 @@ EXPENSES: dict[str, dict[str, Any]] = {}
 # the losing row is gone by the time anyone looks.
 WRITE_LOG: list[dict[str, Any]] = []
 
+# User profiles for get_user_profile, keyed by userId, filled by seed().
+PROFILES: dict[str, dict[str, Any]] = {}
+
 server = FastMCP("receipts-local-gateway", host=HOST, port=PORT, log_level="WARNING")
+
+
+def seed(profiles: list[dict[str, Any]], expenses: list[dict[str, Any]]) -> None:
+    """Load profiles and expense rows as the tables would hold them, for a chat run."""
+    for profile in profiles:
+        PROFILES[profile["userId"]] = profile
+    for row in expenses:
+        EXPENSES[row["expenseId"]] = row
 
 
 def _expense_id(user_id: str, merchant: str, date: str, total: Any) -> str:
@@ -151,6 +165,34 @@ def human_review(
         }
     )
     return json.dumps({"recorded": True, "userId": user_id, "expenseId": expense_id, "status": "needs_review"})
+
+
+@server.tool()
+def get_user_profile(user_id: str) -> str:
+    """Read a user's expense profile (cost center, default category, preferred currency, reimbursement policy) by user id."""
+    profile = PROFILES.get(user_id)
+    if not profile:
+        return json.dumps({"error": f"User {user_id} not found"})
+    return json.dumps(profile, default=str)
+
+
+@server.tool()
+def get_recent_expenses(user_id: str, limit: int = 20) -> str:
+    """List a user's most recent expenses (newest first) so you can detect a likely duplicate before saving a new one."""
+    limit = max(1, min(int(limit), 100))
+    # Same order as the Lambda: descending on the expenseId sort key. The id is a content
+    # hash, so despite "newest first" this is not date order, locally or deployed.
+    rows = sorted((r for r in EXPENSES.values() if r.get("userId") == user_id), key=lambda r: r["expenseId"], reverse=True)
+    items = [{k: v for k, v in r.items() if k != "tool"} for r in rows[:limit]]
+    return json.dumps({"userId": user_id, "count": len(items), "expenses": items}, default=str)
+
+
+@server.tool()
+def lookup_merchant(name: str) -> str:
+    """Normalize a raw merchant name from a receipt against the merchant catalog. Returns the canonical merchant if known, otherwise a cleaned passthrough you can still use."""
+    # No catalog locally: the Lambda's own fallback when the Merchants table has no entry.
+    key = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return json.dumps({"matched": False, "merchant": {"merchantKey": key, "displayName": name.strip()}})
 
 
 def _port_open() -> bool:

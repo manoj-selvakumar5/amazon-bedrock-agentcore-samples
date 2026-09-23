@@ -36,6 +36,7 @@ from model.ladder import classify_model_error, get_active_rung, next_rung, rung_
 from model.load import load_model
 from parsing import build_run_event, parse_payload
 from strands import Agent
+from strands.agent.conversation_manager import SlidingWindowConversationManager
 from strands.tools.mcp import MCPClient
 from tools.ocr import analyze_receipt
 from tools.structured_output import (
@@ -99,7 +100,19 @@ Rules:
 - Be concise and concrete: name merchants, amounts (with currency), and dates.
 - You can only READ. You cannot create, edit, or delete an expense — if asked to, say
   that isn't something you can do.
+- This is a conversation. Use earlier turns to resolve follow-ups like "that one" or
+  "and last month?", but look the data up again before stating any figure.
 """
+
+# Chat history for multi-turn query mode, keyed by (verified user_id, session_id). AgentCore
+# Runtime pins a session to one microVM for its lifetime, so in-process state is the
+# platform's own session model; history is lost only if that microVM is recycled, which a
+# chat can tolerate. AgentCore Memory is not used here: its strategies are namespaced for
+# receipt recall and chat turns would pollute them. Keying on the VERIFIED user keeps the
+# ADR-0016 guarantee: a session id replayed under another identity starts empty.
+_CHAT_HISTORY: dict[tuple[str, str], list] = {}
+# Messages kept per conversation. The sliding window trims whole tool-use pairs, never half.
+CHAT_WINDOW_MESSAGES = 40
 
 
 def _mcp_client() -> MCPClient:
@@ -130,13 +143,18 @@ def invoke(payload, context):
     parsed = parse_payload(payload)
     s3_uri = parsed.get("s3_uri")
     user_id = parsed.get("user_id", "anonymous")
+    # A chat question is not a receipt: it has no fate to record in the receipt ledger.
+    # Emitting one wrote a junk row under hash("") for every question.
+    is_query = bool(parsed.get("question") or parsed.get("query")) and not s3_uri
     try:
-        result = _process(payload)
+        result = _process(payload, context)
     except Exception as exc:  # noqa: BLE001 — record the failure, then re-raise
         log.error("unhandled processing error: %s", exc)
-        _emit_run_ledger(s3_uri, user_id, {"status": "error", "error": str(exc)})
+        if not is_query:
+            _emit_run_ledger(s3_uri, user_id, {"status": "error", "error": str(exc)})
         raise
-    _emit_run_ledger(s3_uri, user_id, result)
+    if not is_query:
+        _emit_run_ledger(s3_uri, user_id, result)
     return result
 
 
@@ -160,7 +178,9 @@ def _process(payload, context=None):
         except Exception as exc:  # noqa: BLE001 — fail closed: no valid identity, no data
             log.warning("query identity rejected: %s", exc)
             return {"mode": "query", "error": "unauthorized: missing or invalid identity token"}
-        return _answer_query(verified_user, str(question))
+        # The Runtime's session id when deployed; the payload's when invoked locally.
+        session_id = getattr(context, "session_id", None) or payload.get("session_id")
+        return _answer_query(verified_user, str(question), session_id=session_id)
 
     # Degradation ladder (spec §6): resolve the active rung from AppConfig (cached;
     # safe L0 default if unavailable). The rung sets the model + which features run.
@@ -558,8 +578,12 @@ def _tag_span_outcome(
         log.warning("span outcome-tag failed: %s", exc)
 
 
-def _answer_query(user_id: str, question: str) -> dict:
+def _answer_query(user_id: str, question: str, session_id: str | None = None) -> dict:
     """Conversational, read-only: answer the user's question about THEIR OWN expenses.
+
+    With a session_id, earlier turns of the same conversation are carried forward, so a
+    follow-up like "and at Starbucks?" has something to refer to. Without one, each
+    question stands alone, as before.
 
     SECURITY — the user_id is the VERIFIED one (from the signed token, not the body),
     and it is PINNED server-side: the tools the agent sees take NO user_id argument, so
@@ -620,12 +644,17 @@ def _answer_query(user_id: str, question: str) -> dict:
             """Normalize/look up a merchant name against the catalog."""
             return _call(merchant_tool, {"name": name})
 
+        history_key = (user_id, session_id) if session_id else None
         agent = Agent(
             model=load_model(model_id=DEFAULT_MODEL_ID),
             system_prompt=QUERY_PROMPT,
             tools=[my_profile, my_recent_expenses, lookup_merchant],
+            messages=list(_CHAT_HISTORY.get(history_key, [])) if history_key else None,
+            conversation_manager=SlidingWindowConversationManager(window_size=CHAT_WINDOW_MESSAGES),
         )
         reply = agent(f"User {user_id} asks: {question}")
+        if history_key:
+            _CHAT_HISTORY[history_key] = list(agent.messages)
 
     return {"mode": "query", "user_id": user_id, "answer": str(reply)}
 
