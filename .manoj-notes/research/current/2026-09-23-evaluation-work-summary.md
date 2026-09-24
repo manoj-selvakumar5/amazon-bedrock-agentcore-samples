@@ -213,6 +213,13 @@ All 79 unit tests in the sample pass. They include tests that the deployed evalu
 - **The deployed code-based evaluators, called by AgentCore:** the harness runs the evaluator code in-process, and the online config exercises only the threshold monitor. So the extraction and routing Lambdas had not been invoked by AgentCore. Two checks now cover them:
   - The Evaluate API on the 9 deployed receipt traces (`out/deployed-00a58b05`): the deployed extraction and routing evaluators gave the same label as the local code on all 18 scores. The two cross-receipt receipts score `FalseClear` when called directly, as expected, because leaving them out is the harness's job, not the evaluator's.
   - `tests/test_e2e_evaluators_live.py`, 13 cases through the Evaluate API: every label of all three evaluators, the "judged on what it was shown" rule, and a missing label reported as an error. **13 of 13 pass.**
+- **Chat after the validator change and redeploy** (`out/deployed-chat-d7c34769`). Chat code did not change; this checks the rebuilt chat Runtime and the live config.
+  - The 5 conversations through the deployed chat Runtime, scored by the harness:
+    - Correctness: 10 of 11 scored turns (turn 1 of `trip_context` only sets context and has no expected answer). The miss is `single_question` again, the same "most recent" error as before. `merchant_followups` turn 3, wrong last time, was right this time.
+    - ConversationCompleteness: 1.0, except 0.5 on `cannot_write`, the correct refusal, as before.
+    - KnowledgeRetention: 1.0, except **0.67 on `trip_context`**. A new, real slip: the agent restated the trip as 24 to 26 June when the user said 24 to 27. Its answers were still right, because no meal fell on the 27th. Kept as evidence.
+  - `ReceiptsAgent_ChatLive` scored all 5 sessions on its own, and its scores match the harness exactly, including the 0.5 and the 0.67.
+  - **Live errors on rejected requests are expected.** ChatLive records a `ValidationException` ("No spans with supported scope names found") for a session whose identity token is rejected, because the agent never runs, so there is nothing to judge. Confirmed with a probe: a tampered-token request with a known session id produced exactly that error. The one such error after the redeploy was the live test for invalid tokens. It is noise in the results log, not a scoring failure.
 - **Resilience tests:** ladder flip, the alarm-to-controller loop with its cooldown, and the L4 drain. **4 passed, 1 skipped by design**; the live Bedrock 503 test was already marked as impossible to simulate faithfully.
 - **Cedar boundary cases:**
   - $2,000 and $2,000.50 denied
