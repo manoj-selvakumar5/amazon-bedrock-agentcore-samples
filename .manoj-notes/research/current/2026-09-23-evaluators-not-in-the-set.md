@@ -24,7 +24,7 @@ Framework 1 produced these two metrics; neither has an evaluator, on purpose.
 
 | Evaluator | Status |
 |---|---|
-| `Builtin.TrajectoryInOrderMatch` | The receipt pipeline's step order is fixed in plain Python. When the validator is shed or does not report, the code sends the receipt to review, so "saved without the validator" cannot happen. It passed 9/9 by construction. Adding the expected terminal tool turned it into a copy of routing (4/9). It **still runs by default** in `score_saved.py` and `run_evaluators.py` |
+| `Builtin.TrajectoryInOrderMatch` | The receipt pipeline's step order is fixed in plain Python. When the validator does not decide, the code sends the receipt to review, so "saved without the validator" cannot happen. It passed 9/9 by construction. Adding the expected terminal tool turned it into a copy of routing (4/9). It **still runs by default** in `score_saved.py` and `run_evaluators.py` |
 
 Designs considered to give it a real job, and rejected:
 - **An investigating validator** with optional policy, merchant and history lookups. Forced: a short policy belongs in the prompt, merchant normalisation should always run in code, and history checks are controls that must always run.

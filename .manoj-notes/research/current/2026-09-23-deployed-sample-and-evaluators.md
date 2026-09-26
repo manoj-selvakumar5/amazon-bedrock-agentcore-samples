@@ -35,7 +35,7 @@ No local container engine was needed: CodeBuild builds the Runtime images, and t
 
 - **Unit tests:** 68 of 68 pass, including new tests for chat history and both evaluator call paths.
 - **Live user-facing tests:** 18 of 20 pass (pipeline, S3 front door, chat identity and IDOR, run ledger, tools, Cedar). The 2 failures are the Cedar finding below.
-- **Live resilience tests:** 4 passed, 1 skipped by design (ladder flip, alarm-to-controller loop with cooldown, L4 drain; the live 503 test was already marked unsimulatable).
+- **Live resilience tests:** 4 passed, 1 skipped by design (ladder flip, alarm-to-controller loop with cooldown, L4 drain; the live 503 test was already marked unsimulatable). These tests went with the ladder when it was removed on 2026-09-25 (summary note, 3.8).
 - **Live evaluation in AgentCore:** `ChatLive` wrote ConversationCompleteness and KnowledgeRetention scores. `ReceiptsLive` scored a $2,400 receipt `held`, "blocked by the policy".
 
 ## The deployed evaluation run

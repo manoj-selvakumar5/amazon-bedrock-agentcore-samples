@@ -72,7 +72,7 @@ Builders who have an agent on AgentCore and a list of built-in and third-party e
 
 **Evidence:**
 - The save and review calls were orchestrator code, not agent tools, so they were never traced. A correct receipt looked like a skipped step. The first fix stamped the outcome on the trace from the agent, not the test harness, because deployed traces have the same gap.
-- The second fix moved the action into the agent. The validator now calls `approve_expense` or `send_to_review` itself, so the decision is traced as the validator's own tool call, with the Gateway's save or review call beneath it. Code still guarantees one decision only, review when there is no decision or the system is degraded, and review when Cedar denies.
+- The second fix moved the action into the agent. The validator now calls `approve_expense` or `send_to_review` itself, so the decision is traced as the validator's own tool call, with the Gateway's save or review call beneath it. Code still guarantees one decision only, review when there is no decision, and review when Cedar denies.
 - **The deployed agent exported no traces at all.** The container started without the OpenTelemetry wrapper, a bug inherited from the upstream sample. Every evaluator, live or offline, was blind to the deployed agent until the Dockerfile was fixed.
 
 **Source:** 2026-09-17 Stage 1 and Stage 2 notes; the sample's ADR-0019; 2026-09-23 deployed-sample note.
@@ -188,6 +188,7 @@ This is the most original section.
 - Trajectory evaluation is parked, and appears only in section 8.
 - The four failed judges are kept, opt-in, as evidence.
 - The validator acts on its decision through pinned tools (the sample's ADR-0019). The post can use this as the example of an agent that decides and acts while code keeps every guarantee.
+- The upstream degradation ladder was removed from the sample (its ADR-0020): from L2 down it replaced the validator's decision with configuration, which the routing evaluator would have scored as the validator's. The model settings stay live in AppConfig. Resilience is out of scope for the post; one sentence can note that evaluated runs must share one pipeline shape.
 
 ## Open for you to decide before prose
 

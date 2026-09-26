@@ -5,7 +5,7 @@
 
 This note stands on its own. It explains the system under evaluation, the conceptual approach, what was implemented, every kind of test run, and the results, including what did not work.
 
-**Where it lives now.** Everything is packaged as one standalone sample, `02-use-cases/02-workflow-automation-agents/receipts-idp-agent-with-evals/`: the agent, the evaluators and the evaluation harness. It is deployed to us-west-2 and left running. It is meant to replace `receipts-intelligent-document-processing-agent` in the pull request. The older folders stay on the branch until then.
+**Where it lives now.** Everything is packaged as one standalone sample, `02-use-cases/02-workflow-automation-agents/receipts-idp-agent-with-evals/`: the agent, the evaluators and the evaluation harness. It is deployed to us-west-2 and left running. It is meant to replace `receipts-intelligent-document-processing-agent` in the pull request. The older folders stay on the branch until then. On 2026-09-25 its model degradation ladder was removed and the model settings kept live in AppConfig (3.8).
 
 ---
 
@@ -20,7 +20,7 @@ The subject is the **receipts intelligent document processing sample** (`02-use-
 3. **Validator.** A second, independent model sees the OCR and the extraction, decides, and acts on its decision by calling exactly one of two tools, each with a confidence and its reasoning:
    - `approve_expense` calls `save_expense` through the Gateway
    - `send_to_review` calls `human_review`, which writes the expense with status `needs_review` so a person can look at it
-4. **Orchestrator code** sets the limits. The tools are pinned to the extractor's expense, so the validator cannot change what is saved. Only one decision is acted on. No decision, a shed validator, or a rung that forces review all mean review. (Until 2026-09-23 the validator only reported a verdict through `submit_validation`, and code made the calls; see 3.7.)
+4. **Orchestrator code** sets the limits. The tools are pinned to the extractor's expense, so the validator cannot change what is saved. Only one decision is acted on. No decision means review. (Until 2026-09-23 the validator only reported a verdict through `submit_validation`, and code made the calls; see 3.7.)
 5. **A Cedar policy at the Gateway** denies any `save_expense` with a total of $2,000 or more, whatever the models decided. A denied save falls back to review.
 6. **Reviewer note.** When a receipt is held, a third model writes a 2-3 sentence note for the human reviewer.
 
@@ -169,6 +169,33 @@ Until this change, the validator reported a verdict and orchestrator code made t
   - Scores: right reason 3 of 3; invented values 2 of 2 caught, plus the known false alarm on the honest low confidence; review-queue precision 67% (4 of 6).
   - These differ from the previous deployed run only by the validator's usual run-to-run variation, since the prompt criteria did not change. This time the extractor left `pii_heavy`'s date empty instead of inventing one, and the validator held it for the missing date. The validator held `split_a` ($1,250) for its size. Both count as false alarms. `split_b` was approved, which is the split-purchase bypass the validator cannot see from one receipt.
 
+### 3.8 The degradation ladder removed (2026-09-25)
+
+The upstream sample's headline feature was a model degradation ladder: five rungs (L0 to L4) in AppConfig with their own models and feature flags, a step-down to the next rung's model on a Bedrock `503`, an alarm-driven controller that moved the active rung for every run, and at L4 an SQS defer queue with a drain. Every evaluation run so far had been at L0, so none of it had touched the results, but it would have:
+
+- **From L2 down the validator is shed** and every receipt goes to review. `ReceiptsRoutingOutcome` would score each clean receipt a false alarm, blaming a validator that never ran. That breaks rule 1: the review would be a configuration decision, not a model's.
+- **At L4 a receipt is deferred** and stamps no total, so the live threshold monitor would record an error for every deferred session.
+- **An L1 run uses another model**, and nothing in the evaluators separated it from L0.
+
+The ladder was removed from the sample rather than making every evaluator rung-aware (ADR-0020 in the sample):
+- **Removed:** the rungs, the step-down loop, the step-down metric and alarm, the controller and drain Lambdas, the defer queue, `forceReview`, validator shedding, the `simulate_503` hook, and the `rung` field in the tools and the run ledger. The validator always runs.
+- **Kept:** AppConfig now holds only the model settings, `{"modelId", "temperature", "maxTokens", "topP"}`, read live by both Runtimes and applied to every model call (`model/settings.py`). A change reaches new runs within about a minute with no redeploy. The model each run used is on its result and ledger row.
+- **One prompt edit:** the validator prompt's sentence about runs where only `send_to_review` is offered was dropped, since that case no longer exists.
+- **Behaviour change:** a Bedrock error that outlasts the SDK's retries now ends the run as `error`, alerted through SNS; nothing is queued for replay.
+
+**Verified after redeploy (2026-09-26):**
+- Unit tests: 66 pass (the ladder and controller tests went, 7 for the settings reader came in).
+- Live tests: 35 of 35, covering pipeline, front door, chat identity, run ledger, the 10 Cedar boundary cases, tools, and the 13 deployed-evaluator cases.
+- The 9 labelled receipts through the front door (`out/deployed-fba354af`):
+  - routing: all 7 scored receipts correct; review-queue precision 100% (5 of 5)
+  - right reason: 4 of 4
+  - invented values: 3 of 3 caught (`clean`, `injected`, `pii_heavy`), plus the usual false alarm on `non_reconciling`'s honest low confidence
+  - the $2,400 receipt held
+  - `clean` went to review because the extractor again invented `1970-01-01` when Textract returned no date; the validator named it, and routing scored it ReviewCorrect.
+- The 5 conversations (`out/deployed-chat-e56aa63b`): Correctness 10 of 11 (the `single_question` "most recent" miss again), completeness 1.0 except 0.5 on the refusal, retention 1.0 everywhere.
+- Against the previous deployed run the differences are run-to-run variation: the validator did not hold `pii_heavy` or `split_a` this time, and retention on `trip_context` went from 0.67 to 1.0.
+- A first chat run (`out/deployed-chat-47835262`) is invalid: the laptop slept mid-run, so requests arrived after their identity tokens had expired (see 5.3, trap 9).
+
 ---
 
 ## 4. The tests
@@ -203,9 +230,9 @@ Each judge was run on real traces and on copies with exactly one thing changed.
 - the window size is fixed
 - chat questions no longer write to the receipt ledger
 
-`tests/test_decision.py`, 10 tests: approve saves; the approve tool takes no expense fields; review files the reviewer note; a second decision is refused; no decision means review; forceReview offers only review; a Cedar denial files a review; a Gateway failure is raised; and the harness trims the trace to the validator without the note writer.
+`tests/test_decision.py`, 10 tests: approve saves; the approve tool takes no expense fields; review files the reviewer note; a second decision is refused; no decision means review; the validator is offered both decisions; a Cedar denial files a review; a Gateway failure is raised; and the harness trims the trace to the validator without the note writer.
 
-All 79 unit tests in the sample pass. They include tests that the deployed evaluators route correctly on both the on-demand path (name) and the online path (neither name nor id), and that totals convert to integer cents. The code-based evaluators were also checked by calling their handler directly with hand-built spans.
+All 66 unit tests in the sample pass (79 before the ladder was removed; see 3.8). They include tests that the deployed evaluators route correctly on both the on-demand path (name) and the online path (neither name nor id), and that totals convert to integer cents. The code-based evaluators were also checked by calling their handler directly with hand-built spans.
 
 ### 4.4 Live tests against the deployed stack
 
@@ -220,7 +247,7 @@ All 79 unit tests in the sample pass. They include tests that the deployed evalu
     - KnowledgeRetention: 1.0, except **0.67 on `trip_context`**. A new, real slip: the agent restated the trip as 24 to 26 June when the user said 24 to 27. Its answers were still right, because no meal fell on the 27th. Kept as evidence.
   - `ReceiptsAgent_ChatLive` scored all 5 sessions on its own, and its scores match the harness exactly, including the 0.5 and the 0.67.
   - **Live errors on rejected requests are expected.** ChatLive records a `ValidationException` ("No spans with supported scope names found") for a session whose identity token is rejected, because the agent never runs, so there is nothing to judge. Confirmed with a probe: a tampered-token request with a known session id produced exactly that error. The one such error after the redeploy was the live test for invalid tokens. It is noise in the results log, not a scoring failure.
-- **Resilience tests:** ladder flip, the alarm-to-controller loop with its cooldown, and the L4 drain. **4 passed, 1 skipped by design**; the live Bedrock 503 test was already marked as impossible to simulate faithfully.
+- **Resilience tests** (before the ladder was removed on 2026-09-25, which took these tests with it): ladder flip, the alarm-to-controller loop with its cooldown, and the L4 drain. **4 passed, 1 skipped by design**; the live Bedrock 503 test was already marked as impossible to simulate faithfully.
 - **Cedar boundary cases:**
   - $2,000 and $2,000.50 denied
   - $1,999, $1,250.0, $15.90 and $1,999.99 allowed
@@ -284,9 +311,10 @@ All 79 unit tests in the sample pass. They include tests that the deployed evalu
 3. **A judge exposing a flawed label.** The "reprint" assertion failed because the OCR step drops free text: the validator never saw the mark. The evaluation design was wrong, not the agent.
 4. **Judges penalising correct behaviour.** `ToolParameterAccuracy` flags the model's honest low confidence as invented. `ConversationCompleteness` scores a correct refusal as half met.
 5. **No ground truth, no view of correctness.** `ConversationCompleteness` scored a wrong answer 1.0. Only `Correctness` with an expected answer caught it.
-6. **Noise.** `KnowledgeRetention` scored the same unedited conversation 0.67 once and 1.0 twice.
+6. **Noise.** `KnowledgeRetention` scored the same unedited conversation 0.67 once and 1.0 twice. The `trip_context` slip scored 0.67 on one deployed run and 1.0 on the next.
 7. **Live and on-demand evaluation call a code-based evaluator differently.** On demand, the Lambda receives the evaluator's name; online, it received neither the name nor the id. An evaluator that routes on its name works in every local and on-demand test, then fails every live session.
 8. **Deployed traces arrive over minutes.** The SDK's span collector returns as soon as any spans exist, so a trace scored straight away can be half there, and a missing save looks like a skipped step.
+9. **A laptop that sleeps mid-run corrupts a live chat run.** Each chat turn carries an identity token that expires after 15 minutes. With the Mac asleep, requests left after their tokens were signed and arrived hours later, so the agent rejected them as expired. The rejected requests left short extra traces in each session, which misaligned the per-turn Correctness references and made the Evaluate call fail. Run the harness with the machine kept awake (`caffeinate -i`).
 
 ---
 
