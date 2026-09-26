@@ -14,9 +14,6 @@ set -uo pipefail   # NOT -e: we assert per-scene and tally failures explicitly.
 # Each scene prints what it's doing, then ASSERTS the outcome. Any failure (esp. a
 # security leak in D) makes the script exit non-zero, so it doubles as a gate.
 #
-# Resilience (degradation ladder, control loop, L4 drain) is NOT here — that's the
-# dev-only suite (make e2e / the resilience tests), not the user story.
-#
 # Usage: AWS_PROFILE=default ./scripts/user-demo.sh [region]
 # Prereqs: stack AgentCore-ReceiptsAgent-dev deployed; AWS creds; python3 + boto3.
 # ============================================================================

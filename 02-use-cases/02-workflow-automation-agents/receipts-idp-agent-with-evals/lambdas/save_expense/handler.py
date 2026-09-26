@@ -65,7 +65,6 @@ def handler(event, context):
         "category": event.get("category", ""),
         "status": event.get("status", "processed"),
         "reviewReason": event.get("review_reason", ""),
-        "rung": event.get("rung", "L0"),
         "sourceReceiptS3": event.get("source_receipt_s3", ""),
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }

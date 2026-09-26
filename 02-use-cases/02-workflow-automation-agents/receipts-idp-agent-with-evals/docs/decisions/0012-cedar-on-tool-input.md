@@ -25,7 +25,7 @@ Paired with a broad `permit(principal, action, resource is AgentCore::Gateway)` 
 
 ## Reasoning
 
-The guardrail must be independent of the agents. Gating on the input means the `$2,000` rule holds even if the validator is shed (L2 down) or the extractor misjudges — the Gateway denies the `save_expense` call deterministically, and the agent falls back to `human_review`. Three subtleties, each learned by deploying and reading the Cedar docs (not by guessing):
+The guardrail must be independent of the agents. Gating on the input means the `$2,000` rule holds even if the validator or the extractor misjudges — the Gateway denies the `save_expense` call deterministically, and the agent falls back to `human_review`. Three subtleties, each learned by deploying and reading the Cedar docs (not by guessing):
 
 1. **Guard `context has input` FIRST.** Referencing `context.input` unconditionally fails the policy-engine *create* for actions like `AgentCore::Action::"Http"` that carry no `input` attribute — and `IGNORE_ALL_FINDINGS` does **not** suppress that. Cedar `&&` short-circuits, so the `has input` guard must come first.
 2. **Scope to the save path.** A bare `total >= 2000` would block *every* tool carrying a `total`, including `human_review` (the safe fallback). `!(context.input has reason)` scopes it: `save_expense` has no `reason`, `human_review` requires one.
@@ -34,7 +34,7 @@ The guardrail must be independent of the agents. Gating on the input means the `
 ## Alternatives Considered
 
 - **Gate on `context.toolName == "save_expense"`** (the instinct from some examples): does not gate here — the documented Cedar tool-args schema keys on `context.input.<field>`. Reading the Cedar policy-conditions docs first, instead of pattern-matching a different sample, was the lesson.
-- **Enforce the threshold in the Lambda or the agent:** not deterministic-independent — a bug or a shed validator could bypass it. The Gateway is the one boundary every tool call must pass.
+- **Enforce the threshold in the Lambda or the agent:** not deterministic-independent — a bug or a wrong validator decision could bypass it. The Gateway is the one boundary every tool call must pass.
 
 ## Consequences
 

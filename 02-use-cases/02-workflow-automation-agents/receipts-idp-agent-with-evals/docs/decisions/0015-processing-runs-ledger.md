@@ -5,7 +5,7 @@
 
 ## Context
 
-The system persists **expenses** — the Expenses table is keyed by `userId` + `expenseId`, where `expenseId = hash(user|merchant|date|total)`. That content key is correct for dedup ([ADR-0011] idempotency): a retried or near-duplicate receipt collapses onto one row instead of double-counting.
+The system persists **expenses** — the Expenses table is keyed by `userId` + `expenseId`, where `expenseId = hash(user|merchant|date|total)`. That content key is correct for dedup: a retried or near-duplicate receipt collapses onto one row instead of double-counting.
 
 But it means the table does **not** record *what happened to each receipt*. Two gaps surfaced in real use processing a batch of scanned receipts:
 1. A receipt that **errors before persisting** (OCR failure, extractor never submits) leaves **no row at all**.
@@ -22,7 +22,7 @@ Separate the **operational/audit record** (one row per receipt, never deduped) f
 ## Reasoning
 
 - **Per-receipt key never collides.** `hash(s3_uri)` is unique per upload, so every receipt — including an error-before-persist and a deduped duplicate — gets exactly one durable fate row. This is precisely what the content-keyed table cannot do.
-- **Asynchronous + best-effort = no bottleneck.** The agent fires the event and returns; it never blocks on, and never fails because of, the ledger (same discipline as the `ModelStepDowns` metric emit, [ADR-0010]). The writer Lambda, EventBridge, and on-demand DynamoDB all scale independently of the hot path. A ledger outage degrades observability, not receipt processing.
+- **Asynchronous + best-effort = no bottleneck.** The agent fires the event and returns; it never blocks on, and never fails because of, the ledger. The writer Lambda, EventBridge, and on-demand DynamoDB all scale independently of the hot path. A ledger outage degrades observability, not receipt processing.
 - **Push, don't poll (Operational Excellence).** The `status=error` → SNS rule notifies an admin instead of requiring them to go look. The GSI + script turn the forensic dig into `receipt_status.py --status error`.
 - **Consistent with the architecture.** EventBridge is already the control-loop backbone; the agent already does best-effort emits. This composes with both rather than introducing a new pattern.
 

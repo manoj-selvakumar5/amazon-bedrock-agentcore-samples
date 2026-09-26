@@ -9,7 +9,7 @@ One command deploys everything as a single CloudFormation stack ([ADR-0001](deci
 - The AWS CLI with credentials for a dev account. The sample provisions real resources.
 - Node.js 20 or later, and `uv`.
 - **No local container engine.** The Runtimes are `Container` builds ([ADR-0005](decisions/0005-container-build-over-codezip.md)), but the images are built in AWS CodeBuild from the uploaded source. The evaluator Lambda is packaged with `uv`, cross-compiled for ARM64.
-- The **four ladder global inference profiles** available in the account. `aws bedrock list-inference-profiles` should list `global.anthropic.claude-opus-4-8`, `...-opus-4-7`, `...-opus-4-6-v1` and `...-sonnet-4-6`. Copy the ids verbatim, because the suffix convention is not uniform.
+- The model's **global inference profile** available in the account. `aws bedrock list-inference-profiles` should list `global.anthropic.claude-opus-4-8`, the default. To use another model, copy its id verbatim into the AppConfig model settings, because the suffix convention is not uniform.
 
 ## Deploy
 
@@ -77,7 +77,7 @@ cd evals && uv venv --python 3.12 && uv pip install -r ../app/receiptsagent/requ
 .venv/bin/python run_dataset.py --bucket <bucket>     # the pipeline on the labelled receipts
 ```
 
-With AppConfig and the Gateway env unset, the agent runs on the L0 default model with all features on. The ladder is a deployed-stack concern.
+With AppConfig and the Gateway env unset, the agent runs on `AGENT_MODEL_ID` with the model's default inference parameters.
 
 ## Automated end-to-end
 
@@ -98,10 +98,10 @@ The stack `AgentCore-ReceiptsAgent-dev` contains:
   - a Cognito M2M pool with a domain
   - a KMS HMAC identity key
 - **Queues and events:**
-  - SQS: `-L4Defer` and the trigger DLQ
-  - EventBridge: a run-ledger event bus and rules, and the `ModelStepDowns` alarm
+  - SQS: the trigger DLQ
+  - EventBridge: a run-ledger event bus and rules
   - an SNS error topic
-- **The ladder:** AppConfig (application, environment, profile, strategy) holding the ladder config.
-- **Lambdas:** trigger, controller, drain, ledger writer and the five tools.
+- **Model settings:** AppConfig (application, environment, profile, strategy) holding the live model settings.
+- **Lambdas:** trigger, ledger writer and the five tools.
 
 Everything is on-demand or serverless, and `destroy.sh` removes it.

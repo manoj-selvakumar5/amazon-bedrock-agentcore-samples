@@ -19,13 +19,11 @@ def test_receipt_id_stable_and_keyed_on_uri():
 def test_processed_run_event():
     result = {
         "status": "processed",
-        "rung": "L0",
         "needs_review": False,
         "cedar_blocked": False,
         "model": "global.anthropic.claude-opus-4-8",
         "extractor_confidence": 92,
         "parse_rate": 1.0,
-        "step_downs": [],
         "validator": {"routing": "AUTO_PERSIST"},
         "expense": {"merchant": "MR D.I.Y.", "total": 30.91, "expense_id": "exp-abc"},
     }
@@ -39,7 +37,6 @@ def test_processed_run_event():
 def test_needs_review_carries_concerns():
     result = {
         "status": "needs_review",
-        "rung": "L0",
         "needs_review": True,
         "validator": {"routing": "NEEDS_REVIEW", "concerns": "totals don't reconcile"},
         "expense": {"merchant": "X", "total": 9.0},
@@ -51,15 +48,15 @@ def test_needs_review_carries_concerns():
 
 def test_error_before_persist_is_captured():
     # The case that left NO row before: an error with no expense at all.
-    ev = build_run_event("s3://b/r.jpg", "u", {"error": "OCR failed: boom", "rung": "L0"})
+    ev = build_run_event("s3://b/r.jpg", "u", {"error": "OCR failed: boom"})
     assert ev["status"] == "error"
     assert ev["error"] == "OCR failed: boom"
     assert ev["merchant"] == "" and ev["expenseId"] == ""
 
 
-def test_deferred_run_event():
-    ev = build_run_event("s3://b/r.jpg", "u", {"status": "deferred", "rung": "L4", "needs_review": True})
-    assert ev["status"] == "deferred" and ev["rung"] == "L4"
+def test_model_is_recorded():
+    ev = build_run_event("s3://b/r.jpg", "u", {"status": "processed", "model": "global.anthropic.claude-opus-4-8"})
+    assert ev["model"] == "global.anthropic.claude-opus-4-8"
 
 
 def test_none_result_degrades_to_unknown():

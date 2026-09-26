@@ -1,30 +1,40 @@
-# ADR-0008: AWS AppConfig Over a Hand-Rolled Flag Store
+# ADR-0008: AWS AppConfig for Live Model Settings
 
-**Status:** Accepted
+**Status:** Accepted (revised 2026-09-25, see [ADR-0020](0020-remove-degradation-ladder.md))
 **Date:** 2026-06-24
 
 ## Context
 
-The degradation ladder ([ADR-0007](0007-degradation-ladder-on-503.md)) needs to change the system's behavior — which rung is active, which features each rung runs — **without a redeploy**, and to do it safely. Where does that config live?
+The model an agent runs on, and its inference parameters, are settings a team changes more often than code: a newer model becomes available, a temperature needs tuning, a response is being cut short by `maxTokens`. Changing them should not need a redeploy of the Runtime, and a bad value should not take the agent down. Where do those settings live?
 
 ## Decision
 
-Store the ladder config in **AWS AppConfig** as a freeform JSON profile: `activeRung` plus the per-rung definitions (model id + feature flags). The agent reads it at the start of every run; changing the active rung is a control-plane operation, no stack redeploy.
+Store them in **AWS AppConfig** as a freeform JSON profile:
+
+```json
+{"modelId": "global.anthropic.claude-opus-4-8", "temperature": 0.2, "maxTokens": 4096, "topP": 0.9}
+```
+
+Only `modelId` is required; a parameter left out keeps the model's default. Both Runtimes (pipeline and chat) read the profile at the start of each run, through a cached reader (`app/receiptsagent/model/settings.py`). Changing a setting is a new AppConfig configuration version and deployment, not a stack redeploy.
 
 ## Reasoning
 
-A degradation ladder is exactly the use case AppConfig is built for. It gives, out of the box, what a hand-rolled flag table (a DynamoDB item, an S3 object) would force us to reinvent:
-- A **validation gate** before a config goes live (catch a malformed rung or unknown model id at deploy, not at 3am).
+AppConfig gives, out of the box, what a hand-rolled settings store (a DynamoDB item, an S3 object) would force us to reinvent:
+- A **validation gate** before a config goes live (catch a malformed document or unknown model id at deploy, not at 3am).
 - **Gradual deployment strategies** (bake time + rollout percentage).
-- **Alarm-backed automatic rollback** — wire a CloudWatch alarm to the deployment, and a bad config self-reverts during the bake window.
+- **Alarm-backed automatic rollback**: wire a CloudWatch alarm to the deployment, and a bad config self-reverts during the bake window.
 
-That safety net is the whole reason to pick AppConfig over a DIY store. The agent caches the config in-process (TTL from the server), so reading the rung is a local lookup, not a per-receipt network call. If AppConfig is ever unreachable or malformed, the reader falls back to L0 and never hard-fails.
+The agent caches the settings in-process (TTL from the server), so reading them is a local lookup, not a per-receipt network call. If AppConfig is unreachable or the document is malformed, the reader falls back to `AGENT_MODEL_ID` with the model's defaults and never hard-fails.
 
 ## Alternatives Considered
 
-- **A DynamoDB item or S3 object as a flag store:** workable, but we'd hand-roll validation, staged rollout, and rollback — the exact safety features AppConfig provides.
-- **Environment variables / redeploy to change the rung:** defeats the purpose. A degradation ladder must change behavior *during* an incident, faster than a deploy.
+- **A DynamoDB item or S3 object as a settings store:** workable, but we'd hand-roll validation, staged rollout, and rollback.
+- **Environment variables only:** every change becomes a Runtime redeploy. `AGENT_MODEL_ID` is kept, but only as the local default and the fallback.
 
 ## Consequences
 
-AppConfig is new infrastructure with **no precedent in the claims sample**, so it was the area to research most carefully. Two findings shaped the implementation: the Runtime reads config via the `appconfigdata` data API, not the Lambda extension ([ADR-0009](0009-appconfigdata-not-lambda-extension.md)); and the account-level controller that *writes* the rung needs IAM on both the AppConfig application and the deployment-strategy resource ([ADR-0010](0010-two-rung-setting-paths.md)). The sample uses an all-at-once, no-bake strategy for fast demos; a production deploy adds a bake window + the alarm rollback.
+The Runtime reads the profile via the `appconfigdata` data API, not the Lambda extension ([ADR-0009](0009-appconfigdata-not-lambda-extension.md)). The sample uses an all-at-once, no-bake strategy for fast demos; a production deploy adds a bake window + the alarm rollback.
+
+A settings change takes effect within one poll interval (about 60 seconds), for new runs only; a run in flight keeps the settings it started with. The model id is recorded on every run's result and ledger row, so an evaluation run can be tied to the model that produced it. When comparing evaluation results, hold the settings fixed across the run, or compare runs by model.
+
+Originally this profile held the degradation ladder: an active rung plus per-rung models and feature flags. The ladder was removed from this sample; the profile now holds only the model settings ([ADR-0020](0020-remove-degradation-ladder.md)).

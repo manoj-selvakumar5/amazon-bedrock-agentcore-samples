@@ -48,7 +48,6 @@ def test_save_then_get_recent_round_trips():
         "total": 10.75,
         "category": "Meals & Entertainment",
         "line_items": [{"description": "Latte", "qty": 1, "unitPrice": 5.50, "amount": 5.50}],
-        "rung": "L0",
     }
     saved = _invoke("ReceiptsAgent-SaveExpense", expense)
     assert saved.get("saved") is True

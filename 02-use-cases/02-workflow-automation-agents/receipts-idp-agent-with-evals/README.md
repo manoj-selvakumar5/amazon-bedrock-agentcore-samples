@@ -2,8 +2,8 @@
 
 An **agentic** Intelligent Document Processing sample: a dual-agent pipeline on AgentCore
 turns a **receipt** into a validated, persisted expense record, and a chat assistant
-answers an employee's questions about their own expenses. It self-protects with a **model
-degradation ladder** when a model tier is capacity-constrained.
+answers an employee's questions about their own expenses. The model and its inference
+parameters are read live from AppConfig, so they can be changed without a redeploy.
 
 It ships with an **evaluation suite** chosen from the business outward, not copied from a
 list: every evaluator judges a decision a model makes, and every judge was contrast-tested
@@ -71,8 +71,13 @@ uv run --with boto3 python scripts/test_invoke.py --region us-west-2
 Prerequisites: the AWS CLI with credentials, Node.js 20 or later, and `uv`. **No local
 container engine is needed**: the Runtime images are built in AWS CodeBuild from the
 uploaded source ([ADR-0005](docs/decisions/0005-container-build-over-codezip.md)), and the
-evaluator Lambda is packaged with `uv`. The four ladder models must be available as global
-inference profiles in the account (`aws bedrock list-inference-profiles`).
+evaluator Lambda is packaged with `uv`. The model, `global.anthropic.claude-opus-4-8` by
+default, must be available as a global inference profile in the account
+(`aws bedrock list-inference-profiles`).
+
+To change the model or its inference parameters on the deployed stack, deploy a new version
+of the AppConfig model settings; both Runtimes pick it up within a minute, with no redeploy
+([CONFIGURATION.md](docs/CONFIGURATION.md#live-model-settings-appconfig)).
 
 ## Evaluation
 
@@ -155,7 +160,7 @@ from the key (`receipts/<user_id>/<file>`), defaulting to `user-001`. A DLQ and 
 a failed trigger visible rather than dropping a receipt.
 
 **Run ledger.** Every receipt run emits one event; a writer Lambda records one row per
-receipt in `ProcessingRuns` (processed, needs_review, deferred or error), and a
+receipt in `ProcessingRuns` (processed, needs_review or error), and a
 `status=error` rule notifies an SNS topic ([ADR-0015](docs/decisions/0015-processing-runs-ledger.md)):
 
 ```bash
@@ -184,14 +189,14 @@ token the agent verifies, and the read tools are pinned to that user
 - `app/receiptsagent/`: the agent. `config.py` is the single env-read seam.
 - `evaluators/business_outcomes/`: the code-based evaluators, deployed as one Lambda.
 - `evals/`: the evaluation harness, labelled receipts and conversations.
-- `lambdas/`: Gateway tools, trigger, controller, drain, ledger writer, Transaction Search.
+- `lambdas/`: Gateway tools, trigger, ledger writer, Transaction Search.
 - `scripts/`, `tests/`, `docs/`.
 
 ## Docs
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how it works.
-- [docs/decisions/](docs/decisions/): 18 ADRs, the why behind each choice.
-- [docs/CONFIGURATION.md](docs/CONFIGURATION.md): env vars, the ladder config, Cedar, tuning.
+- [docs/decisions/](docs/decisions/): 17 ADRs, the why behind each choice.
+- [docs/CONFIGURATION.md](docs/CONFIGURATION.md): env vars, the live model settings, Cedar, tuning.
 - [docs/tutorial.md](docs/tutorial.md): a guided run and experiments.
 - [docs/deployment.md](docs/deployment.md): deploy, destroy, local dev, live tests.
 - [evals/README.md](evals/README.md): running and extending the evaluation suite.

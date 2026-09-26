@@ -32,7 +32,7 @@ const CHAT_ONLINE_EVAL_CONFIG = 'ReceiptsAgent_ChatLive';
  * CDK Stack: Receipts IDP agent with its evaluators.
  *
  * 1. InfraConstruct: DynamoDB, S3 inbox, tool and pipeline Lambdas, SQS, EventBridge,
- *    the AppConfig ladder and its controller, Cognito, the identity KMS key.
+ *    the AppConfig model settings, Cognito, the identity KMS key.
  * 2. AgentCoreApplication (from agentcore.json): the two Runtimes, the code-based
  *    evaluators and the online evaluation configs.
  * 3. AgentCoreMcp: the Gateway, its Lambda targets with real ARNs, and the Cedar policies.
@@ -94,6 +94,19 @@ export class AgentCoreStack extends Stack {
       );
       runtime.addEnvironmentVariable('AGENTCORE_GATEWAY_OAUTH_SCOPES', 'agentcore/invoke');
       runtime.addEnvironmentVariable('IDENTITY_KEY_ID', this.infra.identityKey.keyId);
+      // The model and its inference parameters, read live from AppConfig (ADR-0008).
+      runtime.addEnvironmentVariable('APPCONFIG_APPLICATION', this.infra.appConfigApplicationId);
+      runtime.addEnvironmentVariable('APPCONFIG_ENVIRONMENT', this.infra.appConfigEnvironmentId);
+      runtime.addEnvironmentVariable('APPCONFIG_PROFILE', this.infra.appConfigProfileId);
+      runtime.addToPolicy(
+        new iam.PolicyStatement({
+          sid: 'ReadModelSettings',
+          actions: ['appconfig:StartConfigurationSession', 'appconfig:GetLatestConfiguration'],
+          resources: [
+            `arn:${this.partition}:appconfig:${this.region}:${this.account}:application/${this.infra.appConfigApplicationId}/*`,
+          ],
+        })
+      );
       runtime.addToPolicy(
         new iam.PolicyStatement({
           sid: 'BedrockInvokeModel',
@@ -114,14 +127,8 @@ export class AgentCoreStack extends Stack {
       );
     }
 
-    // The pipeline Runtime additionally reads receipts, the ladder, and writes the ledger.
-    pipeline.addEnvironmentVariable('APPCONFIG_APPLICATION', this.infra.appConfigApplicationId);
-    pipeline.addEnvironmentVariable('APPCONFIG_ENVIRONMENT', this.infra.appConfigEnvironmentId);
-    pipeline.addEnvironmentVariable('APPCONFIG_PROFILE', this.infra.appConfigProfileId);
-    pipeline.addEnvironmentVariable('DEFER_QUEUE_URL', this.infra.deferQueue.queueUrl);
+    // The pipeline Runtime additionally reads receipts and writes the ledger.
     pipeline.addEnvironmentVariable('RUN_EVENT_BUS', this.infra.runBus.eventBusName);
-    // Lets the live step-down test inject a simulated 503 through the payload.
-    pipeline.addEnvironmentVariable('ALLOW_FAULT_INJECTION', 'true');
     pipeline.addToPolicy(
       new iam.PolicyStatement({ sid: 'TextractOcr', actions: ['textract:AnalyzeExpense'], resources: ['*'] })
     );
@@ -134,49 +141,22 @@ export class AgentCoreStack extends Stack {
     );
     pipeline.addToPolicy(
       new iam.PolicyStatement({
-        sid: 'ReadLadder',
-        actions: ['appconfig:StartConfigurationSession', 'appconfig:GetLatestConfiguration'],
-        resources: [
-          `arn:${this.partition}:appconfig:${this.region}:${this.account}:application/${this.infra.appConfigApplicationId}/*`,
-        ],
-      })
-    );
-    pipeline.addToPolicy(
-      new iam.PolicyStatement({
-        sid: 'LadderMetrics',
-        actions: ['cloudwatch:PutMetricData'],
-        resources: ['*'],
-        conditions: { StringEquals: { 'cloudwatch:namespace': 'ReceiptsAgent/Ladder' } },
-      })
-    );
-    pipeline.addToPolicy(
-      new iam.PolicyStatement({
         sid: 'RunLedger',
         actions: ['events:PutEvents'],
         resources: [this.infra.runBus.eventBusArn],
       })
     );
-    pipeline.addToPolicy(
+
+    // ─── Step 6: the front door invokes the pipeline Runtime ───────────────
+    pipeline.grantInvoke(this.infra.triggerFn);
+    // The service authorizes the runtime AND its endpoint.
+    this.infra.triggerFn.addToRolePolicy(
       new iam.PolicyStatement({
-        sid: 'DeferQueue',
-        actions: ['sqs:SendMessage'],
-        resources: [this.infra.deferQueue.queueArn],
+        actions: ['bedrock-agentcore:InvokeAgentRuntime'],
+        resources: [`${pipeline.runtimeArn}/runtime-endpoint/*`],
       })
     );
-
-    // ─── Step 6: front door and drain invoke the pipeline Runtime ──────────
-    for (const fn of [this.infra.triggerFn, this.infra.drainFn]) {
-      pipeline.grantInvoke(fn);
-      // The service authorizes the runtime AND its endpoint.
-      fn.addToRolePolicy(
-        new iam.PolicyStatement({
-          actions: ['bedrock-agentcore:InvokeAgentRuntime'],
-          resources: [`${pipeline.runtimeArn}/runtime-endpoint/*`],
-        })
-      );
-    }
     this.infra.triggerFn.addEnvironment('AGENTCORE_RUNTIME_ARN', pipeline.runtimeArn);
-    this.infra.drainFn.addEnvironment('RUNTIME_ARN', pipeline.runtimeArn);
 
     // ─── Step 7: Transaction Search, the span source for online evaluation ─
     this.enableTransactionSearch();

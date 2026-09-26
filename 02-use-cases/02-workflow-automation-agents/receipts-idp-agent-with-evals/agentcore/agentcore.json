@@ -5,7 +5,7 @@
   "runtimes": [
     {
       "name": "receiptsagent",
-      "description": "Receipts IDP pipeline: OCR, extractor and independent validator agents, Cedar-gated save or human review, with a model degradation ladder",
+      "description": "Receipts IDP pipeline: OCR, extractor and independent validator agents, Cedar-gated save or human review, with the model read live from AppConfig",
       "build": "Container",
       "entrypoint": "main.py",
       "codeLocation": "app/receiptsagent",

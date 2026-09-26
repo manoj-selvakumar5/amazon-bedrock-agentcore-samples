@@ -32,7 +32,7 @@ def main() -> None:
     ap.add_argument("--region", default="us-west-2")
     ap.add_argument("--table", default="ReceiptsAgent-ProcessingRuns")
     ap.add_argument("--s3-uri", help="look up one receipt by its S3 URI")
-    ap.add_argument("--status", help="list all runs with this status (processed/needs_review/deferred/error)")
+    ap.add_argument("--status", help="list all runs with this status (processed/needs_review/error)")
     ap.add_argument("--limit", type=int, default=50)
     args = ap.parse_args()
 
@@ -62,7 +62,7 @@ def main() -> None:
         for it in items:
             print(
                 f"  {it.get('processedAt', '?')}  {it.get('s3Uri', '?')}  "
-                f"rung={it.get('rung', '?')}  merchant={it.get('merchant', '')}  "
+                f"model={it.get('model', '?')}  merchant={it.get('merchant', '')}  "
                 f"{('ERROR: ' + it['error']) if it.get('error') else it.get('validatorConcerns', '')}"
             )
         return

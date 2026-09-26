@@ -55,7 +55,6 @@ def handler(event, context):
         "lineItems": _to_decimal(event.get("line_items", [])),
         "status": "needs_review",
         "reviewReason": reason,
-        "rung": event.get("rung", "L0"),
         "sourceReceiptS3": event.get("source_receipt_s3", ""),
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }

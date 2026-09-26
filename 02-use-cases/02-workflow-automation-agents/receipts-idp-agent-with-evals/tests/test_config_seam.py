@@ -19,7 +19,7 @@ def _fresh_config(monkeypatch, env):
     return importlib.reload(config)
 
 
-def test_default_model_is_L0_opus(monkeypatch):
+def test_default_model_is_opus(monkeypatch):
     monkeypatch.delenv("AGENT_MODEL_ID", raising=False)
     cfg = _fresh_config(monkeypatch, {})
     assert cfg.DEFAULT_MODEL_ID == "global.anthropic.claude-opus-4-8"

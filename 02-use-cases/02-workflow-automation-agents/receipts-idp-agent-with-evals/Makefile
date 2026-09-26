@@ -2,8 +2,7 @@ REGION ?= us-west-2
 
 .PHONY: preflight lint format scan unit synth e2e test-user user-demo clean help
 
-# The user-perspective e2e files (NOT the dev-only resilience suite: ladder, controller,
-# drain, stepdown). These hit REAL AWS against an already-deployed stack — no mocks.
+# The user-perspective e2e files. These hit REAL AWS against an already-deployed stack — no mocks.
 USER_E2E := tests/test_e2e_pipeline_live.py tests/test_e2e_frontdoor_live.py \
             tests/test_e2e_chat_live.py tests/test_e2e_runledger_live.py \
             tests/test_e2e_cedar_live.py tests/test_e2e_tools_live.py \

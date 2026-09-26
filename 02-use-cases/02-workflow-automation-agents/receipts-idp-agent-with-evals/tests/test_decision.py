@@ -96,9 +96,9 @@ def test_fallback_does_nothing_after_a_decision():
     assert gateway.calls == [("save_expense",)]
 
 
-def test_force_review_offers_only_send_to_review():
-    tools = _decision(_Gateway()).tools(allow_approve=False)
-    assert [t.tool_name for t in tools] == ["send_to_review"]
+def test_validator_is_offered_both_decisions():
+    tools = _decision(_Gateway()).tools()
+    assert [t.tool_name for t in tools] == ["approve_expense", "send_to_review"]
 
 
 def test_cedar_denial_files_a_review():

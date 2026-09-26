@@ -1,9 +1,8 @@
 """Model loading.
 
-Phase 1 (walking skeleton): loads the default L0 model from config.
-Phase 6 will resolve the model id from the active degradation rung in AppConfig
-(see the ladder design in spec §6); the seam for that is `model_id` being a
-parameter here, never a hardcoded constant elsewhere.
+The model id and inference parameters come from the live settings in AppConfig
+(model/settings.py); the seam for that is `model_id` and `model_config` being
+parameters here, never a hardcoded constant elsewhere.
 """
 
 from typing import Any
@@ -16,9 +15,9 @@ def load_model(model_id: str | None = None, model_config: dict[str, Any] | None 
     """Return a Bedrock model client using IAM credentials.
 
     Args:
-        model_id: the global inference profile id. Defaults to the L0 rung model;
-            Phase 6 passes the active rung's model id here.
-        model_config: extra BedrockModel config, e.g. {"cache_prompt": "default"}
-            to cache a static system prompt (spec §7 prompt-prefix caching).
+        model_id: the global inference profile id. Defaults to DEFAULT_MODEL_ID.
+        model_config: extra BedrockModel config: the inference parameters from the live
+            settings (temperature, max_tokens, top_p), and e.g. {"cache_prompt": "default"}
+            to cache a static system prompt.
     """
     return BedrockModel(model_id=model_id or DEFAULT_MODEL_ID, **(model_config or {}))

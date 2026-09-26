@@ -69,5 +69,5 @@ def test_processed_receipt_lands_in_run_ledger():
     assert row, f"no ProcessingRuns row for {s3_uri} (receiptId={rid})"
     assert row["s3Uri"] == s3_uri
     assert row["status"] in ("processed", "needs_review")  # real fate, recorded
-    assert row.get("rung") in ("L0", "L1", "L2", "L3", "L4")
+    assert row.get("model", "").startswith("global.anthropic.")
     assert "processedAt" in row

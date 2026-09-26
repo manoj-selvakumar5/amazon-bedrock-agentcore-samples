@@ -16,20 +16,18 @@ import os
 # ─── Region ───────────────────────────────────────────────────────────────
 REGION = os.getenv("AWS_REGION", "us-west-2")
 
-# ─── Model / degradation ladder (spec §6) ──────────────────────────────────
-# The model id is NOT a hardcoded constant. In a deployed stack it is resolved
-# from the active degradation rung in AppConfig (see model/ladder.py). This
+# ─── Model settings ───────────────────────────────────────────────────────
+# The model id is NOT a hardcoded constant. In a deployed stack it is read live,
+# with its inference parameters, from AppConfig (see model/settings.py). This
 # env var is the default for local dev and the fallback if AppConfig is
-# unreachable — it is the L0 rung's model.
+# unreachable.
 DEFAULT_MODEL_ID = os.getenv("AGENT_MODEL_ID", "global.anthropic.claude-opus-4-8")
 
-# AppConfig coordinates for the ladder. When unset (local dev), the agent runs on
-# DEFAULT_MODEL_ID with all features on — the ladder is a deployed-stack concern.
+# AppConfig coordinates for the model settings. When unset (local dev), the agent
+# runs on DEFAULT_MODEL_ID with the model's default inference parameters.
 APPCONFIG_APPLICATION = os.getenv("APPCONFIG_APPLICATION", "")
 APPCONFIG_ENVIRONMENT = os.getenv("APPCONFIG_ENVIRONMENT", "")
 APPCONFIG_PROFILE = os.getenv("APPCONFIG_PROFILE", "")
-# The AppConfig Agent Lambda extension serves cached config on localhost:2772.
-APPCONFIG_EXTENSION_URL = os.getenv("APPCONFIG_EXTENSION_URL", "http://localhost:2772")
 
 # ─── Gateway (MCP tool endpoint) ────────────────────────────────────────────
 GATEWAY_URL = os.getenv(
@@ -46,9 +44,6 @@ MEMORY_ID = os.getenv(
     "MEMORY_RECEIPTSAGENTMEMORY_ID",
     os.getenv("AGENTCORE_MEMORY_ID", ""),
 )
-
-# ─── L4 defer queue (spec §6.1/§12) ─────────────────────────────────────────
-DEFER_QUEUE_URL = os.getenv("DEFER_QUEUE_URL", "")
 
 # ─── Run-ledger event bus (operational audit) ───────────────────────────────
 # The agent emits one event per run to this EventBridge bus; a writer Lambda upserts

@@ -7,9 +7,8 @@ user at this point — the agent authenticates as itself (agent-as-principal, sp
 §10), and this Lambda invokes the Runtime with its own IAM credentials
 (bedrock-agentcore:InvokeAgentRuntime, granted by CDK).
 
-Invoke path: boto3 `invoke_agent_runtime` (the same call the L4 drain consumer uses
-and that the live e2e already proved). The claims sample signs a raw HTTPS request
-with SigV4; boto3 does that for us, so we use it for consistency with the drain path.
+Invoke path: boto3 `invoke_agent_runtime` (the same call the live e2e tests use).
+The claims sample signs a raw HTTPS request with SigV4; boto3 does that for us.
 
 user_id convention: a key `receipts/<user_id>/<file>` carries the user in the path;
 a flat key `receipts/<file>` (or anything without a user segment) falls back to the
@@ -68,11 +67,10 @@ def handler(event, context):
     result = _invoke_runtime(payload)
     # A failed invoke raises -> the Lambda retries (CDK retryAttempts) -> DLQ. We do
     # not swallow it: a dropped receipt must be visible, never silently lost.
-    print(f"front door: {payload['s3_uri']} -> status={result.get('status')} rung={result.get('rung')}")
+    print(f"front door: {payload['s3_uri']} -> status={result.get('status')}")
     return {
         "statusCode": 200,
         "s3_uri": payload["s3_uri"],
         "user_id": payload["user_id"],
         "status": result.get("status"),
-        "rung": result.get("rung"),
     }

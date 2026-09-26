@@ -13,7 +13,6 @@ chooses, and cannot alter what is written.
 The orchestrator keeps the guarantees it had when it executed the decision itself:
   - exactly one outcome: a second decision is refused, not acted on
   - fail safe: if the validator decides nothing, `fallback_review` routes to review
-  - degraded rungs: with forceReview, only `send_to_review` is offered
   - a Cedar denial of the save files a review instead
 
 Because the validator calls the tools, Strands traces the decision as the validator's own
@@ -97,15 +96,15 @@ class ReceiptDecision:
             raise
 
     def fallback_review(self, reason: str) -> None:
-        """Route to review when the validator decided nothing, or was shed on this rung."""
+        """Route to review when the validator decided nothing."""
         if self.decided:
             return
         self.decided = True
         self._record("NEEDS_REVIEW", 0, reason, "None")
         self._file_review(reason)
 
-    def tools(self, allow_approve: bool = True) -> list:
-        """The tools offered to the validator. With forceReview, approve is not offered."""
+    def tools(self) -> list:
+        """The two tools offered to the validator."""
 
         @tool
         def approve_expense(confidence: int, notes: str) -> str:
@@ -131,4 +130,4 @@ class ReceiptDecision:
             """
             return self.send_to_review(confidence, notes, concerns)
 
-        return [approve_expense, send_to_review] if allow_approve else [send_to_review]
+        return [approve_expense, send_to_review]

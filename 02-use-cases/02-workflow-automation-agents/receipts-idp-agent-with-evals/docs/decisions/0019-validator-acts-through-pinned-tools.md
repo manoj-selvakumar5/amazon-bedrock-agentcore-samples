@@ -27,7 +27,6 @@ The orchestrator keeps every guarantee it had:
 
 - **One outcome.** A second decision is refused, not acted on.
 - **Fail safe.** If the validator decides nothing, the receipt goes to review.
-- **Degraded rungs review everything.** With `forceReview`, only `send_to_review` is offered. With the validator shed, code files the review, as before.
 - **A Cedar denial files a review,** inside `approve_expense`, and the model is told the save was blocked.
 - **A Gateway failure is an error,** re-raised after the agent returns, not swallowed as a failed tool call.
 

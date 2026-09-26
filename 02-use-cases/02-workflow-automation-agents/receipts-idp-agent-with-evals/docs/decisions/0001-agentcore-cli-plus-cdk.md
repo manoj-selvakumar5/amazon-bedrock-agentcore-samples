@@ -7,7 +7,7 @@
 
 This sample needs two categories of infrastructure:
 1. **AgentCore resources** — Runtime, Gateway, PolicyEngine, Evaluator, OnlineEvaluationConfig. These are declared in `agentcore/agentcore.json` and managed by the AgentCore CLI.
-2. **Supplementary infrastructure** — DynamoDB tables, an S3 inbox bucket, a Cognito user pool, SQS queues, AppConfig, CloudWatch alarms, EventBridge rules, and Lambda functions (the Gateway tools + the trigger, controller, and drain). The AgentCore CLI does not manage these.
+2. **Supplementary infrastructure** — DynamoDB tables, an S3 inbox bucket, a Cognito user pool, an SQS dead-letter queue, AppConfig, EventBridge rules, and Lambda functions (the Gateway tools, the trigger and the ledger writer). The AgentCore CLI does not manage these.
 
 The question: how do we deploy both categories together as a single, reproducible unit?
 
@@ -23,7 +23,7 @@ Use the AgentCore CLI as the primary interface for AgentCore resources (declared
 
 ## Reasoning
 
-The point of this sample is to show how to build a workflow-automation agent with the AgentCore CLI — the canonical developer flow: scaffold → configure → validate → dev → deploy. But a real agent needs surrounding infrastructure: data stores, an event trigger, auth, and (here) the AppConfig + alarm + controller machinery of the degradation ladder. CDK is the natural choice for that, and the AgentCore CLI already uses CDK under the hood. Placing the CDK app inside `agentcore/cdk/` means one `agentcore deploy` handles everything.
+The point of this sample is to show how to build a workflow-automation agent with the AgentCore CLI — the canonical developer flow: scaffold → configure → validate → dev → deploy. But a real agent needs surrounding infrastructure: data stores, an event trigger, auth, and (here) the AppConfig profile that holds the live model settings. CDK is the natural choice for that, and the AgentCore CLI already uses CDK under the hood. Placing the CDK app inside `agentcore/cdk/` means one `agentcore deploy` handles everything.
 
 ## Alternatives Considered
 

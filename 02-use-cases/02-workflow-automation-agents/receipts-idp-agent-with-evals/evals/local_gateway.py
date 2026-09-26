@@ -88,7 +88,6 @@ def save_expense(
     line_items: list[Any] | None = None,
     category: str = "",
     status: str = "processed",
-    rung: str = "",
     source_receipt_s3: str = "",
 ) -> str:
     """Persist a validated expense record for a user."""
@@ -115,7 +114,6 @@ def save_expense(
         "lineItems": line_items or [],
         "category": category,
         "status": status,
-        "rung": rung,
         "sourceReceiptS3": source_receipt_s3,
         "createdAt": _now(),
     }
@@ -142,7 +140,6 @@ def human_review(
     total: float | None = None,
     category: str = "",
     line_items: list[Any] | None = None,
-    rung: str = "",
     source_receipt_s3: str = "",
 ) -> str:
     """Record an expense as pending human review instead of auto-saving it."""
@@ -159,7 +156,6 @@ def human_review(
         "lineItems": line_items or [],
         "status": "needs_review",
         "reviewReason": reason,
-        "rung": rung,
         "sourceReceiptS3": source_receipt_s3,
         "createdAt": _now(),
     }

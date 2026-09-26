@@ -23,4 +23,4 @@ A single agent with a two-phase prompt: simpler and one fewer LLM call, but the 
 
 ## Consequences
 
-Two LLM calls per receipt instead of one (~10-15s more). The validator is the first **sheddable feature** on the degradation ladder — it runs at L0/L1 and is dropped from L2 down, where every receipt routes to review anyway (see [ADR-0007](0007-degradation-ladder-on-503.md)). Sequential (not parallel) keeps the code simple: no shared state between the two agents.
+Two LLM calls per receipt instead of one (~10-15s more). Sequential (not parallel) keeps the code simple: no shared state between the two agents.

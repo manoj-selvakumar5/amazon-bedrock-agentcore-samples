@@ -60,9 +60,8 @@ def test_receipt_flows_through_agent_to_dynamodb():
     # The agent returns its outcome; status is processed or needs_review, never error.
     assert "error" not in data, f"agent returned error: {data}"
     assert data.get("status") in ("processed", "needs_review")
-    # Order-independent: any valid rung (the ladder test may flip activeRung and
-    # restores it, but don't hard-couple to L0).
-    assert data.get("rung") in ("L0", "L1", "L2", "L3", "L4")
+    # The model the run used, read live from AppConfig.
+    assert data.get("model", "").startswith("global.anthropic.")
     expense = data.get("expense", {})
     assert expense.get("merchant"), "extractor should have produced a merchant"
 

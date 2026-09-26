@@ -1,8 +1,8 @@
 # Tutorial
 
-A guided run, then five experiments that exercise the parts that make this sample interesting: the event-driven front door, the Cedar guardrail, the degradation ladder (the distinct contribution), and adding a tool. Assumes you've deployed — see [deployment.md](deployment.md).
+A guided run, then four experiments that exercise the parts that make this sample interesting: the event-driven front door, the Cedar guardrail, changing the model live, and adding a tool. Assumes you've deployed — see [deployment.md](deployment.md).
 
-Prerequisites: the stack is deployed (`./deploy.sh us-west-2`), and the four ladder global inference profiles are enabled in your account (`aws bedrock list-inference-profiles`).
+Prerequisites: the stack is deployed (`./deploy.sh us-west-2`), and the model's global inference profile (`global.anthropic.claude-opus-4-8` by default) is enabled in your account (`aws bedrock list-inference-profiles`).
 
 ## The guided run
 
@@ -15,7 +15,7 @@ python3 scripts/test_invoke.py --region us-west-2 \
     --user-id user-001
 ```
 
-The response is a structured result: `{status, rung, needs_review, model, extractor_confidence, validator, expense, ...}`. On a healthy account `rung` is `L0` and `status` is `processed` or `needs_review`.
+The response is a structured result: `{status, needs_review, model, extractor_confidence, validator, expense, ...}`. `status` is `processed` or `needs_review`, and `model` is the model the run used.
 
 **2. See it in DynamoDB.** The expense row landed under the user:
 
@@ -26,7 +26,7 @@ aws dynamodb query --table-name ReceiptsAgent-Expenses \
     --region us-west-2
 ```
 
-**3. See the trace.** CloudWatch → GenAI Observability → your runtime. Each run is one session; the span carries `receipts.ladder.rung`/`.model`/`.degraded`.
+**3. See the trace.** CloudWatch → GenAI Observability → your runtime. Each run is one session; the invocation span carries the outcome as `receipts.*` attributes (status, total, whether Cedar blocked it, both confidences), which the evaluators read.
 
 ## Experiment 1 — the event-driven front door
 
@@ -47,28 +47,13 @@ The key `receipts/alice/lunch.png` makes the trigger derive `user_id=alice`. Aft
 AWS_REGION=us-west-2 python3 -m pytest tests/test_e2e_cedar_live.py -v
 ```
 
-## Experiment 3 — flip the degradation rung (no redeploy)
+## Experiment 3 — change the model live (no redeploy)
 
-The ladder's core promise: change the model for every run by editing AppConfig, with no stack redeploy ([ADR-0007](decisions/0007-degradation-ladder-on-503.md), [ADR-0008](decisions/0008-appconfig-over-hand-rolled-flags.md)).
+The model and its inference parameters live in AppConfig, and both Runtimes read them at the start of each run ([ADR-0008](decisions/0008-appconfig-over-hand-rolled-flags.md)). Deploy a new version of the settings, for example a lower `temperature` or another model id, with the commands in [CONFIGURATION.md](CONFIGURATION.md#live-model-settings-appconfig). Within about a minute, re-run step 1 of the guided run: the result's `model` shows the new model, and the stack was never redeployed.
 
-```bash
-# Find the AppConfig ids, then deploy a config with activeRung flipped to L3:
-AWS_REGION=us-west-2 python3 -m pytest tests/test_e2e_ladder_live.py -v
-```
+Keep the settings fixed while running the labelled evaluations, so every scored run used the same model.
 
-That test flips `activeRung` L0 → L3 via AppConfig (control plane only), invokes the agent, and confirms the model swapped to Sonnet 4.6 with **no redeploy** — then restores L0. To do it by hand: edit the hosted config profile's `activeRung`, `create-hosted-configuration-version`, `start-deployment`; the agent picks it up within the cache TTL.
-
-## Experiment 4 — the account-level control loop
-
-A sustained `503` should step the whole fleet down, then recover ([ADR-0010](decisions/0010-two-rung-setting-paths.md)). You can't summon a real Bedrock `503` on demand — but `cloudwatch set-alarm-state` fires the *real* EventBridge event, so the alarm → controller → AppConfig path runs for real:
-
-```bash
-AWS_REGION=us-west-2 python3 -m pytest tests/test_e2e_controller_live.py -v
-```
-
-This forces the ladder alarm to `ALARM`, asserts the controller stepped `activeRung` L0 → L1, then proves the cooldown blocks an immediate recovery and the rung steps back up after it elapses. The L4 SQS drain is covered by `tests/test_e2e_drain_live.py` ([ADR-0011](decisions/0011-l4-sqs-jittered-drain.md)).
-
-## Experiment 5 — add a new tool
+## Experiment 4 — add a new tool
 
 Two config surfaces stay in sync ([ADR-0001](decisions/0001-agentcore-cli-plus-cdk.md), [ADR-0003](decisions/0003-gateway-lambda-targets-over-co-located-tools.md)):
 

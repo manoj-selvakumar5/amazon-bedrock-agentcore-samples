@@ -8,21 +8,16 @@ PHASE 4 (dual agent — the extraction-quality half of M2):
 
 Two sequential Strands agents beat a single self-checking agent's confirmation
 bias (claims ADR-0002). The validator is isolated from the extractor's reasoning —
-it only sees the extractor's structured output + the OCR. Runs on the default L0
-model (the degradation ladder is Phase 6; the validator is a sheddable rung feature).
+it only sees the extractor's structured output + the OCR. The model and its inference
+parameters are read live from AppConfig (model/settings.py, ADR-0008).
 Auth to the Gateway is agent-as-principal M2M Cognito (spec §10).
 """
 
 import json
-import os
-import random
-import time
 import uuid
 
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from config import (
-    DEFAULT_MODEL_ID,
-    DEFER_QUEUE_URL,
     GATEWAY_URL,
     IDENTITY_KEY_ID,
     REGION,
@@ -33,8 +28,8 @@ from gateway_auth import get_gateway_token
 from identity import verify_identity
 from memory.session import get_memory_session_manager
 from mcp.client.streamable_http import streamablehttp_client
-from model.ladder import classify_model_error, get_active_rung, next_rung, rung_for
 from model.load import load_model
+from model.settings import get_model_settings
 from parsing import build_run_event, parse_payload, to_cents
 from strands import Agent
 from strands.agent.conversation_manager import SlidingWindowConversationManager
@@ -84,8 +79,7 @@ Decide, then act on your decision with exactly ONE tool call:
 - send_to_review when anything is off: totals don't reconcile, a field is not supported
   by the receipt, the merchant/category is questionable, a large amount has weak
   evidence, or the extractor's confidence is low. Name the specific concerns.
-Be conservative: when in doubt, send_to_review. If only send_to_review is available,
-this run requires review; use it.
+Be conservative: when in doubt, send_to_review.
 """
 
 QUERY_PROMPT = """You are a helpful expense assistant. The user asks questions about
@@ -182,24 +176,14 @@ def _process(payload, context=None):
         session_id = getattr(context, "session_id", None) or payload.get("session_id")
         return _answer_query(verified_user, str(question), session_id=session_id)
 
-    # Degradation ladder (spec §6): resolve the active rung from AppConfig (cached;
-    # safe L0 default if unavailable). The rung sets the model + which features run.
-    active = get_active_rung()
-    rung = active["rung"]
-    features = active["features"]
-    # Tag the trace span with the rung up front so even a defer/OCR-fail trace is
-    # marked with the rung it ran on (spec §6.4). Re-tagged after any step-down.
-    _tag_span_rung(rung, active["model"])
+    # The model and its inference parameters, read live from AppConfig (cached; safe
+    # defaults if unavailable). Read once per receipt so every model in a run matches.
+    settings = get_model_settings()
+    model_id, params = settings["model_id"], settings["params"]
 
     if not s3_uri:
         _tag_span_outcome(status="error")
         return {"error": "s3_uri is required", "received": payload}
-
-    # L4 — defer: no model call. Queue the receipt for replay and return (spec §6.1).
-    if active["defer"]:
-        deferred = _defer_receipt(s3_uri, user_id, rung)
-        _tag_span_outcome(status="deferred", needs_review=True, s3_uri=s3_uri)
-        return {"status": "deferred", "rung": rung, "deferred": deferred, "needs_review": True, "s3_uri": s3_uri}
 
     reset_state()
     session_id = f"receipt-{user_id}-{uuid.uuid4().hex}"
@@ -210,19 +194,17 @@ def _process(payload, context=None):
     except Exception as exc:
         log.error("OCR failed: %s", exc)
         _tag_span_outcome(status="error", s3_uri=s3_uri)
-        return {"error": f"OCR failed: {exc}", "s3_uri": s3_uri, "rung": rung}
+        return {"error": f"OCR failed: {exc}", "s3_uri": s3_uri, "model": model_id}
 
     # Deterministic line-item table parse (hybrid: parser first, LLM fallback).
     parsed_items = parse_line_items(ocr["line_items"])
     parse_rate = parse_success_rate(ocr["line_items"], parsed_items)
 
-    # Memory only if the rung allows reads (sheddable feature, spec §6.1).
     session_manager = None
-    if features.get("memoryRead"):
-        try:
-            session_manager = get_memory_session_manager(session_id, user_id)
-        except Exception as exc:
-            log.warning("Memory unavailable: %s", exc)
+    try:
+        session_manager = get_memory_session_manager(session_id, user_id)
+    except Exception as exc:
+        log.warning("Memory unavailable: %s", exc)
 
     extractor_prompt = (
         f"User id: {user_id}\n\n"
@@ -236,71 +218,23 @@ def _process(payload, context=None):
     with _mcp_client() as gateway:
         gateway_tools = gateway.list_tools_sync()
 
-        # 2) Extractor agent, run inside the in-agent 503 step-down loop (spec §6.3).
-        # A persistent 503 (model capacity) steps to the next rung's model FOR THIS
-        # RUN; 429/500 back off + retry the SAME model. A test hook can inject a 503.
-        run_rung = rung
-        run_model = active["model"]
-        step_downs = []
-        sim_503 = _sim_503_count(payload)
-        # NOTE (deferred, see tests/test_e2e_stepdown_live.py): the live 503 sim
-        # surfaced a reporting check to revisit — confirm the returned `rung`/`model`
-        # always reflect the rung the extraction SUCCEEDED on after a step-down. The
-        # step-down decision logic itself is unit-tested (classify_model_error/next_rung).
+        # 2) Extractor agent: structured output through a forced submit_expense call.
+        extractor = Agent(
+            name="extractor",
+            model=load_model(model_id=model_id, model_config={**params, "cache_prompt": "default"}),
+            system_prompt=EXTRACTOR_PROMPT,
+            tools=[submit_expense],
+            session_manager=session_manager,
+        )
+        extractor(extractor_prompt)
 
-        while True:
-            try:
-                extractor = Agent(
-                    name="extractor",
-                    model=load_model(model_id=run_model, model_config={"cache_prompt": "default"}),
-                    system_prompt=EXTRACTOR_PROMPT,
-                    tools=[submit_expense],
-                    session_manager=session_manager,
-                )
-                if sim_503 > 0:  # fault injection (env-gated) — simulate a 503 this attempt
-                    sim_503 -= 1
-                    raise _fake_503(run_model)
-                extractor(extractor_prompt)
-                break  # success on run_model
-            except Exception as exc:
-                action = classify_model_error(exc)
-                if action == "backoff":
-                    time.sleep(_backoff_jitter(len(step_downs)))
-                    continue
-                if action == "step":
-                    nxt = next_rung(run_rung)
-                    nxt_rung = rung_for(nxt) if nxt else None
-                    if not nxt_rung or nxt_rung["defer"]:
-                        # bottomed out -> defer the receipt (spec §6.1 L4)
-                        deferred = _defer_receipt(s3_uri, user_id, run_rung)
-                        _tag_span_outcome(status="deferred", needs_review=True, s3_uri=s3_uri)
-                        return {
-                            "status": "deferred",
-                            "rung": run_rung,
-                            "deferred": deferred,
-                            "needs_review": True,
-                            "step_downs": step_downs,
-                            "reason": "503 persisted to the bottom of the ladder",
-                            "s3_uri": s3_uri,
-                        }
-                    step_downs.append({"from": run_rung, "to": nxt, "cause": "503"})
-                    _emit_step_down_metric(run_rung, nxt)
-                    run_rung, run_model = nxt, nxt_rung["model"]
-                    continue
-                raise  # not a ladder error — propagate
-
-        rung = run_rung  # the rung that actually produced the extraction
-        if step_downs:  # re-tag the span if a 503 stepped us to a different rung/model
-            _tag_span_rung(rung, run_model)
         expense = get_last_expense()
         if not expense:
             _tag_span_outcome(status="error", s3_uri=s3_uri)
-            return {"error": "extractor did not submit an expense", "rung": rung, "step_downs": step_downs}
+            return {"error": "extractor did not submit an expense", "model": model_id}
 
-        # 3) Independent validator agent — a sheddable rung feature (spec §6.1). It decides
-        # AND acts, through pinned decision tools (decision.py): it can choose save or review,
-        # never change what is saved. When the rung runs no validator (L2 down) or forces
-        # review, everything routes to human_review (degrade-safe, never auto-persist unchecked).
+        # 3) Independent validator agent. It decides AND acts, through pinned decision tools
+        # (decision.py): it can choose save or review, never change what is saved.
         save_name = _tool_name(gateway_tools, "save_expense", "save_expense")
         review_name = _tool_name(gateway_tools, "human_review", "human_review")
         common = {
@@ -311,7 +245,6 @@ def _process(payload, context=None):
             "total": expense["total"],
             "category": expense["category"],
             "line_items": expense["line_items"],
-            "rung": rung,
             "source_receipt_s3": s3_uri,
         }
 
@@ -345,27 +278,24 @@ def _process(payload, context=None):
         decision = ReceiptDecision(
             save=_save,
             review=_review,
-            write_note=lambda reason: _reviewer_note(ocr["raw_text"], expense, reason, active["model"]),
+            write_note=lambda reason: _reviewer_note(ocr["raw_text"], expense, reason, model_id, params),
             is_denied=_is_denied,
         )
         try:
-            if features.get("validator"):
-                validator = Agent(
-                    name="validator",
-                    model=load_model(model_id=active["model"]),
-                    system_prompt=VALIDATOR_PROMPT,
-                    tools=decision.tools(allow_approve=not features.get("forceReview", False)),
-                )
-                validator(
-                    f"Original OCR:\n{ocr['raw_text']}\n\n"
-                    f"Extractor's structured expense:\n{json.dumps(expense, default=str)}\n\n"
-                    "Validate it, then act on your decision with exactly one tool call."
-                )
-                if decision.error:
-                    raise decision.error
-                decision.fallback_review("validator made no decision")
-            else:
-                decision.fallback_review(f"validator shed at rung {rung}")
+            validator = Agent(
+                name="validator",
+                model=load_model(model_id=model_id, model_config=params),
+                system_prompt=VALIDATOR_PROMPT,
+                tools=decision.tools(),
+            )
+            validator(
+                f"Original OCR:\n{ocr['raw_text']}\n\n"
+                f"Extractor's structured expense:\n{json.dumps(expense, default=str)}\n\n"
+                "Validate it, then act on your decision with exactly one tool call."
+            )
+            if decision.error:
+                raise decision.error
+            decision.fallback_review("validator made no decision")
         except Exception:
             validation = decision.validation
             routing = validation.get("routing", "")
@@ -403,11 +333,9 @@ def _process(payload, context=None):
     )
     return {
         "status": status,
-        "rung": rung,
         "needs_review": needs_review,
         "cedar_blocked": cedar_blocked,
-        "step_downs": step_downs,
-        "model": run_model,
+        "model": model_id,
         "extractor_confidence": expense["confidence"],
         "validator": validation,
         "parse_rate": parse_rate,
@@ -433,7 +361,7 @@ Rules:
 """
 
 
-def _reviewer_note(ocr_text: str, expense: dict, concern: str, model_id: str) -> str:
+def _reviewer_note(ocr_text: str, expense: dict, concern: str, model_id: str, params: dict) -> str:
     """Write the note the reviewer reads, as the agent's own response text.
 
     Returned as a response rather than buried in a tool argument on purpose: the evaluators that
@@ -444,7 +372,7 @@ def _reviewer_note(ocr_text: str, expense: dict, concern: str, model_id: str) ->
     """
     try:
         writer = Agent(
-            model=load_model(model_id=model_id),
+            model=load_model(model_id=model_id, model_config=params),
             system_prompt=REVIEWER_NOTE_PROMPT,
             name="reviewer-note",
         )
@@ -648,8 +576,9 @@ def _answer_query(user_id: str, question: str, session_id: str | None = None) ->
             return _call(merchant_tool, {"name": name})
 
         history_key = (user_id, session_id) if session_id else None
+        settings = get_model_settings()
         agent = Agent(
-            model=load_model(model_id=DEFAULT_MODEL_ID),
+            model=load_model(model_id=settings["model_id"], model_config=settings["params"]),
             system_prompt=QUERY_PROMPT,
             tools=[my_profile, my_recent_expenses, lookup_merchant],
             messages=list(_CHAT_HISTORY.get(history_key, [])) if history_key else None,
@@ -660,55 +589,6 @@ def _answer_query(user_id: str, question: str, session_id: str | None = None) ->
             _CHAT_HISTORY[history_key] = list(agent.messages)
 
     return {"mode": "query", "user_id": user_id, "answer": str(reply)}
-
-
-def _backoff_jitter(attempt: int) -> float:
-    """Exponential backoff with jitter for 429/500 retries (spec §6.3). Capped."""
-    return min(0.5 * (2**attempt) + random.uniform(0, 0.25), 4.0)
-
-
-def _tag_span_rung(rung: str, model: str, needs_review: bool | None = None) -> None:
-    """Tag the current OTel span with the ladder rung so degraded runs are visible in
-    traces (spec §6.4 — 'degrade safe, not silent'). The managed Runtime configures
-    ADOT/OTel; we just stamp attributes on the active span. Best-effort: never break a
-    receipt run over telemetry, and stay importable without opentelemetry installed."""
-    try:
-        from opentelemetry import trace
-
-        span = trace.get_current_span()
-        if span is None:
-            return
-        span.set_attribute("receipts.ladder.rung", rung)
-        span.set_attribute("receipts.ladder.model", model)
-        span.set_attribute("receipts.ladder.degraded", rung not in ("L0",))
-        if needs_review is not None:
-            span.set_attribute("receipts.needs_review", needs_review)
-    except Exception as exc:  # noqa: BLE001 — telemetry is best-effort
-        log.warning("span rung-tag failed: %s", exc)
-
-
-def _emit_step_down_metric(from_rung: str, to_rung: str) -> None:
-    """Emit the account-level ladder signal (spec §6.3 path 2). A 503 the agent
-    recovers from is a SUCCESSFUL Runtime invocation, so it never appears as a
-    Runtime System Error metric. This custom ModelStepDowns metric is the honest
-    signal the controller's alarm watches to step activeRung down for everyone.
-    Best-effort: a metric failure must never break receipt processing."""
-    try:
-        import boto3
-
-        boto3.client("cloudwatch", region_name=REGION).put_metric_data(
-            Namespace="ReceiptsAgent/Ladder",
-            MetricData=[
-                {
-                    "MetricName": "ModelStepDowns",
-                    "Value": 1,
-                    "Unit": "Count",
-                    "Dimensions": [{"Name": "FromRung", "Value": from_rung}],
-                }
-            ],
-        )
-    except Exception as exc:  # noqa: BLE001 — telemetry is best-effort
-        log.warning("ModelStepDowns metric emit failed: %s", exc)
 
 
 def _emit_run_ledger(s3_uri, user_id, result) -> None:
@@ -735,44 +615,6 @@ def _emit_run_ledger(s3_uri, user_id, result) -> None:
         )
     except Exception as exc:  # noqa: BLE001 — audit emit is best-effort
         log.warning("run-ledger emit failed: %s", exc)
-
-
-# Fault injection for live e2e of the 503 step-down. Gated by an env flag so it is
-# NOT a production backdoor: only honored when ALLOW_FAULT_INJECTION=true.
-_FAULT_INJECTION = os.getenv("ALLOW_FAULT_INJECTION", "").lower() == "true"
-
-
-def _sim_503_count(payload: dict) -> int:
-    """How many leading model attempts to fail with a simulated 503 (test hook)."""
-    if not _FAULT_INJECTION:
-        return 0
-    try:
-        return max(0, int(payload.get("simulate_503", 0)))
-    except (TypeError, ValueError):
-        return 0
-
-
-def _fake_503(model_id: str) -> Exception:
-    """A botocore-shaped ServiceUnavailable error for the step-down test hook."""
-    exc = Exception(f"ServiceUnavailableException (simulated) for {model_id}")
-    exc.response = {"Error": {"Code": "ServiceUnavailableException"}}  # type: ignore[attr-defined]
-    return exc
-
-
-def _defer_receipt(s3_uri: str, user_id: str, rung: str) -> bool:
-    """L4 defer (spec §6.1): queue the receipt to SQS for replay when the model
-    tier recovers. Returns True if queued. Never drops the document — if the queue
-    isn't configured, report not-queued so the caller surfaces it."""
-    if not DEFER_QUEUE_URL:
-        log.warning("L4 defer but no DEFER_QUEUE_URL configured")
-        return False
-    import boto3
-
-    boto3.client("sqs", region_name=REGION).send_message(
-        QueueUrl=DEFER_QUEUE_URL,
-        MessageBody=json.dumps({"s3_uri": s3_uri, "user_id": user_id, "deferred_at_rung": rung}),
-    )
-    return True
 
 
 def _is_denied(result) -> bool:

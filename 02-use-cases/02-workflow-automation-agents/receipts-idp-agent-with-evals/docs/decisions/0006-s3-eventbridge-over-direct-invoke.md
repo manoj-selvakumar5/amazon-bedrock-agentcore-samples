@@ -21,4 +21,4 @@ A direct invoke (API Gateway / Lambda that forwards the bytes): one fewer hop, b
 
 ## Consequences
 
-Three hops instead of one (S3 → EventBridge → trigger → Runtime). For local testing, drop a file straight into the bucket — no upload UI needed. The trigger has a dead-letter queue and retries, so a failed invoke is visible rather than a silently dropped receipt. The Runtime is invoked with `bedrock-agentcore:InvokeAgentRuntime` via boto3 (the same call the L4 drain consumer uses — see [ADR-0011](0011-l4-sqs-jittered-drain.md)).
+Three hops instead of one (S3 → EventBridge → trigger → Runtime). For local testing, drop a file straight into the bucket — no upload UI needed. The trigger has a dead-letter queue and retries, so a failed invoke is visible rather than a silently dropped receipt. The Runtime is invoked with `bedrock-agentcore:InvokeAgentRuntime` via boto3.

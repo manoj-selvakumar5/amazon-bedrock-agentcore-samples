@@ -7,7 +7,7 @@ set -euo pipefail
 #
 # Deploys one CloudFormation stack (AgentCore-ReceiptsAgent-dev):
 #   - Supplementary infra: DynamoDB, S3 inbox, tool and pipeline Lambdas, SQS,
-#     EventBridge, the AppConfig degradation ladder and its controller, Cognito,
+#     EventBridge, the AppConfig model settings, Cognito,
 #     the identity KMS key (agentcore/cdk/lib/infra-construct.ts)
 #   - Two AgentCore Runtimes (pipeline and chat), the Gateway with its Cedar policy
 #     engine, three code-based evaluators and two online evaluation configs

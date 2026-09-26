@@ -1,15 +1,12 @@
 import * as cdk from 'aws-cdk-lib';
 import { CfnOutput, Duration, RemovalPolicy } from 'aws-cdk-lib';
 import * as appconfig from 'aws-cdk-lib/aws-appconfig';
-import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cognito from 'aws-cdk-lib/aws-cognito';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as targets from 'aws-cdk-lib/aws-events-targets';
-import * as iam from 'aws-cdk-lib/aws-iam';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import * as lambda_ from 'aws-cdk-lib/aws-lambda';
-import { SqsEventSource } from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as sns from 'aws-cdk-lib/aws-sns';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
@@ -30,27 +27,13 @@ const TOOL_TARGETS: { target: string; dir: string; functionName: string }[] = [
   { target: 'human-review', dir: 'human_review', functionName: 'ReceiptsAgent-HumanReview' },
 ];
 
-/** The degradation ladder profile (docs/CONFIGURATION.md). Missing flags inherit L0. */
-const LADDER_CONFIG = {
-  activeRung: 'L0',
-  rungs: {
-    L0: {
-      model: 'global.anthropic.claude-opus-4-8',
-      features: {
-        validator: true,
-        memoryRead: true,
-        memoryWrite: true,
-        merchantLookup: true,
-        categoryInference: true,
-        dedup: true,
-        forceReview: false,
-      },
-    },
-    L1: { model: 'global.anthropic.claude-opus-4-7', features: { memoryWrite: false, merchantLookup: false } },
-    L2: { model: 'global.anthropic.claude-opus-4-6-v1', features: { validator: false, forceReview: true } },
-    L3: { model: 'global.anthropic.claude-sonnet-4-6', features: { validator: false, forceReview: true } },
-    L4: { features: { validator: false, forceReview: true } },
-  },
+/**
+ * Model settings the agent reads live from AppConfig (docs/CONFIGURATION.md). Deploy a new
+ * version to change the model or its inference parameters without redeploying the agent.
+ * Optional keys: temperature, maxTokens, topP. A key left out keeps the model's default.
+ */
+const MODEL_SETTINGS = {
+  modelId: 'global.anthropic.claude-opus-4-8',
 };
 
 /**
@@ -62,11 +45,9 @@ export class InfraConstruct extends Construct {
   /** Real Lambda ARN per Gateway target name, used to patch the PLACEHOLDER_* targets. */
   public readonly lambdaArnMap: Record<string, string> = {};
   public readonly inbox: s3.Bucket;
-  public readonly deferQueue: sqs.Queue;
   public readonly runBus: events.EventBus;
   public readonly identityKey: kms.Key;
   public readonly triggerFn: lambda_.Function;
-  public readonly drainFn: lambda_.Function;
   public readonly userPool: cognito.UserPool;
   public readonly userPoolClient: cognito.UserPoolClient;
   public readonly cognitoDiscoveryUrl: string;
@@ -129,15 +110,6 @@ export class InfraConstruct extends Construct {
     });
 
     // ─── Queues ────────────────────────────────────────────────────────────
-    // L4 defer queue: visibility must exceed the drain timeout so an in-flight replay
-    // holds its message.
-    this.deferQueue = new sqs.Queue(this, 'DeferQueue', {
-      queueName: 'ReceiptsAgent-L4Defer',
-      visibilityTimeout: Duration.minutes(6),
-      retentionPeriod: Duration.days(14),
-      enforceSSL: true,
-      removalPolicy,
-    });
     const triggerDlq = new sqs.Queue(this, 'TriggerDLQ', {
       queueName: 'ReceiptsAgent-TriggerDLQ',
       retentionPeriod: Duration.days(14),
@@ -231,19 +203,6 @@ export class InfraConstruct extends Construct {
       ],
     });
 
-    // ─── L4 drain: defer queue -> Runtime, one at a time (ADR-0011) ────────
-    this.drainFn = new lambda_.Function(this, 'DrainFn', {
-      functionName: 'ReceiptsAgent-Drain',
-      runtime: lambda_.Runtime.PYTHON_3_12,
-      handler: 'handler.handler',
-      code: lambdaCode('drain'),
-      timeout: Duration.minutes(4),
-      memorySize: 256,
-      reservedConcurrentExecutions: 1,
-      environment: { RUNTIME_ARN: 'PENDING', DRAIN_MIN_SECONDS: '1', DRAIN_MAX_SECONDS: '3' },
-    });
-    this.drainFn.addEventSource(new SqsEventSource(this.deferQueue, { batchSize: 1 }));
-
     // ─── Run ledger: agent -> bus -> ledger writer; errors -> SNS ──────────
     this.runBus = new events.EventBus(this, 'RunBus', { eventBusName: 'ReceiptsAgent-RunLedger' });
     const ledgerFn = new lambda_.Function(this, 'LedgerWriterFn', {
@@ -268,110 +227,41 @@ export class InfraConstruct extends Construct {
       targets: [new targets.SnsTopic(runErrors)],
     });
 
-    // ─── Degradation ladder: AppConfig profile + alarm-driven controller ───
-    const ladderApp = new appconfig.CfnApplication(this, 'LadderApp', { name: 'ReceiptsAgent-Ladder' });
-    const ladderEnv = new appconfig.CfnEnvironment(this, 'LadderEnv', {
-      applicationId: ladderApp.ref,
+    // ─── Model settings: AppConfig, read live by the agent (ADR-0008) ──────
+    const settingsApp = new appconfig.CfnApplication(this, 'ModelSettingsApp', { name: 'ReceiptsAgent-ModelSettings' });
+    const settingsEnv = new appconfig.CfnEnvironment(this, 'ModelSettingsEnv', {
+      applicationId: settingsApp.ref,
       name: 'dev',
     });
-    const ladderProfile = new appconfig.CfnConfigurationProfile(this, 'LadderProfile', {
-      applicationId: ladderApp.ref,
-      name: 'ladder',
+    const settingsProfile = new appconfig.CfnConfigurationProfile(this, 'ModelSettingsProfile', {
+      applicationId: settingsApp.ref,
+      name: 'model-settings',
       locationUri: 'hosted',
       type: 'AWS.Freeform',
     });
-    const ladderVersion = new appconfig.CfnHostedConfigurationVersion(this, 'LadderVersion', {
-      applicationId: ladderApp.ref,
-      configurationProfileId: ladderProfile.ref,
-      content: JSON.stringify(LADDER_CONFIG),
+    const settingsVersion = new appconfig.CfnHostedConfigurationVersion(this, 'ModelSettingsVersion', {
+      applicationId: settingsApp.ref,
+      configurationProfileId: settingsProfile.ref,
+      content: JSON.stringify(MODEL_SETTINGS),
       contentType: 'application/json',
     });
-    const ladderStrategy = new appconfig.CfnDeploymentStrategy(this, 'LadderStrategy', {
+    const settingsStrategy = new appconfig.CfnDeploymentStrategy(this, 'ModelSettingsStrategy', {
       name: 'ReceiptsAgent-AllAtOnce',
       deploymentDurationInMinutes: 0,
       growthFactor: 100,
       finalBakeTimeInMinutes: 0,
       replicateTo: 'NONE',
     });
-    new appconfig.CfnDeployment(this, 'LadderDeployment', {
-      applicationId: ladderApp.ref,
-      environmentId: ladderEnv.ref,
-      configurationProfileId: ladderProfile.ref,
-      configurationVersion: ladderVersion.ref,
-      deploymentStrategyId: ladderStrategy.ref,
+    new appconfig.CfnDeployment(this, 'ModelSettingsDeployment', {
+      applicationId: settingsApp.ref,
+      environmentId: settingsEnv.ref,
+      configurationProfileId: settingsProfile.ref,
+      configurationVersion: settingsVersion.ref,
+      deploymentStrategyId: settingsStrategy.ref,
     });
-    this.appConfigApplicationId = ladderApp.ref;
-    this.appConfigEnvironmentId = ladderEnv.ref;
-    this.appConfigProfileId = ladderProfile.ref;
-
-    // The agent emits ModelStepDowns with a FromRung dimension; sum the rungs that can
-    // step down, since an alarm cannot aggregate across an unlisted dimension.
-    const stepDowns = (rung: string) =>
-      new cloudwatch.Metric({
-        namespace: 'ReceiptsAgent/Ladder',
-        metricName: 'ModelStepDowns',
-        dimensionsMap: { FromRung: rung },
-        statistic: 'Sum',
-        period: Duration.minutes(1),
-      });
-    const ladderAlarm = new cloudwatch.Alarm(this, 'LadderStepDownAlarm', {
-      alarmName: 'ReceiptsAgent-LadderStepDowns',
-      alarmDescription: 'Model step-downs across the ladder; drives the account-level rung controller',
-      metric: new cloudwatch.MathExpression({
-        expression: 'm0 + m1 + m2 + m3',
-        usingMetrics: { m0: stepDowns('L0'), m1: stepDowns('L1'), m2: stepDowns('L2'), m3: stepDowns('L3') },
-        period: Duration.minutes(1),
-      }),
-      threshold: 3,
-      evaluationPeriods: 1,
-      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
-    });
-
-    const controllerFn = new lambda_.Function(this, 'ControllerFn', {
-      functionName: 'ReceiptsAgent-Controller',
-      runtime: lambda_.Runtime.PYTHON_3_12,
-      handler: 'handler.handler',
-      code: lambdaCode('controller'),
-      timeout: Duration.seconds(60),
-      memorySize: 256,
-      environment: {
-        APPCONFIG_APPLICATION: ladderApp.ref,
-        APPCONFIG_ENVIRONMENT: ladderEnv.ref,
-        APPCONFIG_PROFILE: ladderProfile.ref,
-        APPCONFIG_STRATEGY: ladderStrategy.ref,
-        LADDER_ALARM: ladderAlarm.alarmName,
-        LADDER_COOLDOWN_SECONDS: '60',
-      },
-    });
-    // StartDeployment is authorized on the application AND the deployment strategy (ADR-0010).
-    controllerFn.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: [
-          'appconfig:GetConfiguration',
-          'appconfig:GetHostedConfigurationVersion',
-          'appconfig:ListHostedConfigurationVersions',
-          'appconfig:CreateHostedConfigurationVersion',
-          'appconfig:ListDeployments',
-          'appconfig:GetDeployment',
-          'appconfig:StartDeployment',
-        ],
-        resources: [
-          `arn:${stack.partition}:appconfig:${stack.region}:${stack.account}:application/${ladderApp.ref}`,
-          `arn:${stack.partition}:appconfig:${stack.region}:${stack.account}:application/${ladderApp.ref}/*`,
-          `arn:${stack.partition}:appconfig:${stack.region}:${stack.account}:deploymentstrategy/${ladderStrategy.ref}`,
-        ],
-      })
-    );
-    new events.Rule(this, 'LadderAlarmRule', {
-      ruleName: 'ReceiptsAgent-LadderAlarmStateChange',
-      eventPattern: {
-        source: ['aws.cloudwatch'],
-        detailType: ['CloudWatch Alarm State Change'],
-        detail: { alarmName: [ladderAlarm.alarmName] },
-      },
-      targets: [new targets.LambdaFunction(controllerFn)],
-    });
+    this.appConfigApplicationId = settingsApp.ref;
+    this.appConfigEnvironmentId = settingsEnv.ref;
+    this.appConfigProfileId = settingsProfile.ref;
 
     // ─── Outputs read by scripts and live tests (matched by prefix) ────────
     new CfnOutput(this, 'UserPoolId', { value: this.userPool.userPoolId });

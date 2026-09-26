@@ -33,7 +33,7 @@ def receipt_id(s3_uri: str) -> str:
 
 def build_run_event(s3_uri: str, user_id: str, result: dict) -> dict:
     """Pure: shape the agent's outcome dict into the run-ledger event detail. Captures
-    every fate — processed / needs_review / deferred / error — so the ProcessingRuns
+    every fate — processed / needs_review / error — so the ProcessingRuns
     table records what happened to EVERY receipt. stdlib-only + no AWS, so it's
     unit-testable and shared by the writer Lambda."""
     result = result or {}
@@ -45,10 +45,8 @@ def build_run_event(s3_uri: str, user_id: str, result: dict) -> dict:
         "s3_uri": s3_uri or "",
         "userId": user_id or "anonymous",
         "status": status,
-        "rung": result.get("rung", ""),
         "needs_review": bool(result.get("needs_review", False)),
         "cedar_blocked": bool(result.get("cedar_blocked", False)),
-        "step_downs": result.get("step_downs", []),
         "model": result.get("model", ""),
         "extractor_confidence": result.get("extractor_confidence"),
         "parse_rate": result.get("parse_rate"),
