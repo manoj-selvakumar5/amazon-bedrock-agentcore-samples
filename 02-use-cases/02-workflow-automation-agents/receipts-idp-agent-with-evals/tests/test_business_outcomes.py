@@ -45,3 +45,25 @@ def test_deployed_entry_points_need_no_name_or_id():
         EvaluatorInput(evaluation_level="SESSION", session_spans=SAVED_OVER_LIMIT, reference_inputs=[]), None
     )
     assert out.label == "breach"
+
+
+HELD_OVER_LIMIT = {"attributes": {"receipts.status": "needs_review", "receipts.total": 2400.0}}
+
+
+def _threshold(spans):
+    from business_outcomes import threshold_control_handler
+
+    return threshold_control_handler.unwrapped(
+        EvaluatorInput(evaluation_level="SESSION", session_spans=spans, reference_inputs=[]), None
+    )
+
+
+def test_a_denied_save_span_reads_as_blocked_by_the_policy():
+    denied = {"name": "mcp tools/call save-expense___save_expense", "status": {"code": "ERROR"}}
+    out = _threshold([HELD_OVER_LIMIT, denied])
+    assert out.label == "held" and "blocked by the policy" in out.explanation
+
+
+def test_no_denied_save_reads_as_held_by_the_validator():
+    out = _threshold([HELD_OVER_LIMIT])
+    assert out.label == "held" and "held by the validator first" in out.explanation

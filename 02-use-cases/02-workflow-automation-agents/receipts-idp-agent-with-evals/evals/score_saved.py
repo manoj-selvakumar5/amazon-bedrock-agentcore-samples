@@ -40,7 +40,9 @@ def _note_writer_part(spans: list[dict]) -> set[str]:
     """Span ids of the note writer's run and the human_review call that carries its note.
 
     The validator acts through its decision tools, so both run inside the validator's own
-    send_to_review call. Log records carry the span id of the span they belong to.
+    send_to_review call. Log records carry the span id of the span they belong to. The
+    human_review call is the MCP instrumentation's `mcp tools/call human-review___human_review`
+    span (older traces: a hand-made `execute_tool human_review` span).
     """
     roots = {
         s["spanId"]
@@ -48,9 +50,9 @@ def _note_writer_part(spans: list[dict]) -> set[str]:
         if s.get("spanId")
         and (
             (s.get("attributes") or {}).get("gen_ai.agent.name") == "reviewer-note"
-            or (s.get("attributes") or {}).get("gen_ai.tool.name") == "human_review"
+            or str((s.get("attributes") or {}).get("gen_ai.tool.name", "")).endswith("human_review")
         )
-        and s.get("name", "").startswith(("invoke_agent", "execute_tool"))
+        and s.get("name", "").startswith(("invoke_agent", "execute_tool", "mcp tools/call"))
     }
     children: dict[str, list[str]] = {}
     for s in spans:

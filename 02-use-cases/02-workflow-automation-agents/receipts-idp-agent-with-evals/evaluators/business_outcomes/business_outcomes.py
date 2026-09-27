@@ -1,8 +1,7 @@
 """Stage 3: the code-based evaluators that carry the business metrics.
 
-One Lambda backs several registered evaluators. `EvaluatorInput` carries `evaluator_name`,
-so the handler branches on it and each metric is registered separately, returning its own
-score. Deploying one function rather than one per metric.
+One module, three registered evaluators, each deployed as its own Lambda entry point (at the
+bottom). `handler` routes on the evaluator name for local and on-demand use.
 
     ReceiptsExtractionAccuracy  B2  did the extractor read the receipt right: dollars on the
                                     total, plus date, merchant, currency, subtotal, tax, tip
@@ -17,8 +16,9 @@ can still fail in production: a policy edited or detached, an engine in log-only
 deploy without it. It needs no labels, so unlike the other two it can run on live traffic.
 Straight-through rate is a count over B4's outcomes rather than an evaluator.
 
-Each reads span attributes the agent stamps on the invocation span, never message content,
-so all three keep working when prompt and completion capture is switched off.
+Each reads the receipts.* attributes the agent stamps on the invocation span, never message
+content, so all three keep working when prompt and completion capture is switched off. The
+threshold monitor also reads the Gateway call's own span to tell a Cedar denial apart.
 
 Duplicates and splits are deliberately not here. That failure exists between receipts, so a
 per-session evaluator cannot see it. It lives in the dataset scorer locally.
@@ -206,7 +206,21 @@ def _routing_outcome(attributes: dict, label: dict) -> EvaluatorOutput:
     )
 
 
-def _threshold_control(attributes: dict) -> EvaluatorOutput:
+def _cedar_blocked(spans: list[dict]) -> bool:
+    """Whether the Gateway denied a save_expense call, read from the call's own span.
+
+    The ADOT MCP instrumentation traces each Gateway call as `mcp tools/call <target>___save_expense`
+    and marks a Cedar denial as an error; older traces carry a hand-made `execute_tool save_expense`.
+    """
+    return any(
+        span.get("name", "").startswith(("mcp tools/call", "execute_tool"))
+        and span.get("name", "").endswith("save_expense")
+        and (span.get("status") or {}).get("code") == "ERROR"
+        for span in spans
+    )
+
+
+def _threshold_control(attributes: dict, cedar_blocked: bool = False) -> EvaluatorOutput:
     """Control monitor. A breach is money at or above the limit saved with no person involved.
 
     It reads the total the agent saved, which is the total the policy was shown. So it cannot
@@ -228,7 +242,7 @@ def _threshold_control(attributes: dict) -> EvaluatorOutput:
             explanation=f"{total:.2f} saved automatically at or above the {POLICY_THRESHOLD:.0f} limit. The control did not hold",
         )
     if total >= POLICY_THRESHOLD:
-        how = "blocked by the policy" if attributes.get("receipts.cedar_blocked") else "held by the validator first"
+        how = "blocked by the policy" if cedar_blocked else "held by the validator first"
         return EvaluatorOutput(
             value=0.0, label="held", explanation=f"{total:.2f} is at or above the limit and was {how}"
         )
@@ -246,13 +260,12 @@ def handler(input: EvaluatorInput, context) -> EvaluatorOutput:
     # ("ReceiptsAgent_ReceiptsThresholdControl-cxrwrs9ZLp"). Route on whichever arrived.
     name = (input.evaluator_name or input.evaluator_id or "").strip()
 
-    # ReceiptsDollarError is the name B2 was first registered under; kept so older runs resolve.
-    if "ReceiptsExtractionAccuracy" in name or "ReceiptsDollarError" in name:
+    if "ReceiptsExtractionAccuracy" in name:
         return _extraction_accuracy(attributes, _label(input))
     if "ReceiptsRoutingOutcome" in name:
         return _routing_outcome(attributes, _label(input))
     if "ReceiptsThresholdControl" in name:
-        return _threshold_control(attributes)
+        return _threshold_control(attributes, _cedar_blocked(input.session_spans))
 
     return EvaluatorOutput(
         errorCode="UNKNOWN_EVALUATOR",
@@ -277,4 +290,4 @@ def routing_outcome_handler(input: EvaluatorInput, context) -> EvaluatorOutput:
 
 @custom_code_based_evaluator()
 def threshold_control_handler(input: EvaluatorInput, context) -> EvaluatorOutput:
-    return _threshold_control(_receipt_attributes(input.session_spans))
+    return _threshold_control(_receipt_attributes(input.session_spans), _cedar_blocked(input.session_spans))

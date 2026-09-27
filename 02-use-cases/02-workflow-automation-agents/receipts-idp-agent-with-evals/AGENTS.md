@@ -21,6 +21,6 @@ Guidance for AI agents and contributors working in this sample.
 
 ## Evaluators (do not break)
 - **Every evaluator judges a decision a model makes, against a right answer or a clear reference**, and passes a contrast test before it is trusted (ADR-0017). Do not add an evaluator that re-checks a control the code already enforces, or a second evaluator for a question one already answers.
-- **The code-based evaluators are one Lambda** (`evaluators/business_outcomes/`), branching on the evaluator name; the same code scores locally in `evals/`. Keep the evaluator names in `agentcore.json` in sync with the handler.
+- **The code-based evaluators are one module** (`evaluators/business_outcomes/`), deployed as one Lambda entry point per evaluator; the same code scores locally in `evals/` through `handler`, which routes on the evaluator name. Keep the evaluator names in `agentcore.json` in sync with the handler.
 - **The evaluators read `receipts.*` attributes on the invocation span**, never message content, so they keep working with content capture off. If you change what the agent stamps in `_tag_span_outcome`, update the evaluators.
 - **Judges scoring one pipeline model get only the trace up to that model** (`_through_agent` in `evals/score_saved.py`); later agents repeat earlier outputs.

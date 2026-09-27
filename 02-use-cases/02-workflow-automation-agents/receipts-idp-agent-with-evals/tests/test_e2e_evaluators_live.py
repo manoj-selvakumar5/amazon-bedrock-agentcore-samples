@@ -65,7 +65,6 @@ def _session(**overrides) -> tuple[str, list[dict]]:
         "receipts.subtotal": 12.75,
         "receipts.tax": 1.15,
         "receipts.tip": 2.0,
-        "receipts.cedar_blocked": False,
     }
     attributes.update(overrides)
     session_id = f"evaluator-live-{uuid.uuid4().hex}"
@@ -132,7 +131,7 @@ def test_routing_outcome(evaluators, overrides, label_overrides, expected):
     "overrides, expected",
     [
         ({}, "not_engaged"),
-        ({"receipts.total": 2400.0, "receipts.status": "needs_review", "receipts.cedar_blocked": True}, "held"),
+        ({"receipts.total": 2400.0, "receipts.status": "needs_review"}, "held"),
         ({"receipts.total": 2400.0}, "breach"),
     ],
 )

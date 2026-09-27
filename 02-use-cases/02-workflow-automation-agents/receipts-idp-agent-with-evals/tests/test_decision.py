@@ -139,8 +139,27 @@ def test_scorer_trims_to_the_validator_without_the_note_writer():
         _span("dec", "execute_tool send_to_review", 20, 80, "val", **{"gen_ai.tool.name": "send_to_review"}),
         _span("note", "invoke_agent reviewer-note", 21, 60, "dec", **{"gen_ai.agent.name": "reviewer-note"}),
         _span("chat", "chat", 22, 59, "note"),
-        _span("hr", "execute_tool human_review", 61, 70, "dec", **{"gen_ai.tool.name": "human_review"}),
+        _span(
+            "hr",
+            "mcp tools/call human-review___human_review",
+            61,
+            70,
+            "dec",
+            **{"gen_ai.tool.name": "human-review___human_review"},
+        ),
         {"spanId": "note", "timeUnixNano": 30, "body": "the note text"},
     ]
     assert [s["spanId"] for s in through_validator(spans)] == ["root", "ext", "val", "dec"]
     assert [s["spanId"] for s in extractor_only(spans)] == ["root", "ext"]
+
+
+def test_scorer_still_trims_older_traces_with_the_hand_made_span():
+    from score_saved import through_validator
+
+    spans = [
+        _span("root", "receipts.invocation", 0, 100),
+        _span("val", "invoke_agent validator", 11, 90, "root", **{"gen_ai.agent.name": "validator"}),
+        _span("dec", "execute_tool send_to_review", 20, 80, "val", **{"gen_ai.tool.name": "send_to_review"}),
+        _span("hr", "execute_tool human_review", 61, 70, "dec", **{"gen_ai.tool.name": "human_review"}),
+    ]
+    assert [s["spanId"] for s in through_validator(spans)] == ["root", "val", "dec"]

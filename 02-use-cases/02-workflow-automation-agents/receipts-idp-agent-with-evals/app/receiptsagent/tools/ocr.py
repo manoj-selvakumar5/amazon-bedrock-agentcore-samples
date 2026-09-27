@@ -9,7 +9,6 @@ Confidence drives the human-review gate (spec §7): we surface per-field and an
 overall mean so the agent/validator can decide auto-persist vs needs_review.
 """
 
-import json
 from typing import Any
 from urllib.parse import urlparse
 
@@ -84,8 +83,3 @@ def analyze_receipt(s3_uri: str) -> dict[str, Any]:
         "overall_confidence": overall,
         "raw_text": raw_text,
     }
-
-
-def ocr_digest_json(s3_uri: str) -> str:
-    """Convenience: analyze and return a JSON string (for prompt embedding)."""
-    return json.dumps(analyze_receipt(s3_uri), default=str)

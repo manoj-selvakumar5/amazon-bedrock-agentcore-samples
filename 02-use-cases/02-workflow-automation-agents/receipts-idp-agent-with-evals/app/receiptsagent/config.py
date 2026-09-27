@@ -7,8 +7,8 @@ changes how these env vars get set, not the agent code.
 
 Environment variables are injected by the CDK stack at deploy time. The
 `@aws/agentcore-cdk` constructs auto-generate names like
-`AGENTCORE_GATEWAY_RECEIPTSGATEWAY_URL` and `MEMORY_RECEIPTSAGENTMEMORY_ID`; we read
-both the auto-generated and the explicit names for robustness.
+`AGENTCORE_GATEWAY_RECEIPTSGATEWAY_URL`; we read both the auto-generated and the explicit
+names for robustness.
 """
 
 import os
@@ -38,12 +38,6 @@ GATEWAY_OAUTH_SCOPES = os.getenv("AGENTCORE_GATEWAY_OAUTH_SCOPES", "")
 GATEWAY_CLIENT_ID = os.getenv("AGENTCORE_GATEWAY_CLIENT_ID", "")
 GATEWAY_CLIENT_SECRET = os.getenv("AGENTCORE_GATEWAY_CLIENT_SECRET", "")
 
-# ─── Memory (spec §5.2; custom receipts/ namespaces) ────────────────────────
-MEMORY_ID = os.getenv(
-    "MEMORY_RECEIPTSAGENTMEMORY_ID",
-    os.getenv("AGENTCORE_MEMORY_ID", ""),
-)
-
 # ─── Run-ledger event bus (operational audit) ───────────────────────────────
 # The agent emits one event per run to this EventBridge bus; a writer Lambda upserts
 # the ProcessingRuns table. Unset (local dev) = no emit, agent runs normally.
@@ -53,6 +47,3 @@ RUN_EVENT_BUS = os.getenv("RUN_EVENT_BUS", "")
 # In query mode the agent derives user_id from a token signed by THIS KMS key, never
 # from the request body. The key never leaves KMS (GenerateMac/VerifyMac).
 IDENTITY_KEY_ID = os.getenv("IDENTITY_KEY_ID", "")
-
-# ─── Logging ────────────────────────────────────────────────────────────────
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

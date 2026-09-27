@@ -79,11 +79,10 @@ This sample originally carried a model degradation ladder (per-rung models and f
 | **Policy (Cedar)** | Gates `save_expense` on the tool input (amount ≥ $2,000 → review), deterministically, independent of the agents ([ADR-0012](decisions/0012-cedar-on-tool-input.md)). |
 | **Observability** | OTel traces/logs/metrics → CloudWatch GenAI Observability; the outcome stamped on the invocation span. Auto-instrumented (the Runtime is CLI/CDK-deployed). |
 | **Evaluations** | Three code-based evaluators (one Lambda), a live config per Runtime, and built-in and third-party judges run on labelled data. See [Evaluation](#evaluation). |
-| **Memory** | Integrated in the agent for per-user facts in custom `receipts/...` namespaces. The stack does not create a Memory resource by default, and the agent degrades gracefully without one. |
 
 ## Component inventory
 
-- **`app/receiptsagent/`** — the agent. `main.py` (dual-agent entrypoint), `config.py` (the single env-read seam), `model/settings.py` (the live model settings + the appconfigdata reader), `tools/` (OCR, structured output, the table parser), `memory/`, `mcp_client/`.
+- **`app/receiptsagent/`** — the agent. `main.py` (dual-agent entrypoint), `config.py` (the single env-read seam), `model/settings.py` (the live model settings + the appconfigdata reader), `tools/` (OCR, structured output, the table parser).
 - **`lambdas/`** — the Gateway tools (`get_user_profile`, `get_recent_expenses`, `lookup_merchant`, `save_expense`, `human_review`) + the front-door `trigger` + the run-ledger writer, each with its schema under `lambdas/schemas/`.
 - **`agentcore/agentcore.json`** — the AgentCore resources: two Runtimes, the Gateway and targets, the PolicyEngine and Cedar policies, the code-based evaluators, the `ReceiptsLive` online config.
 - **`evaluators/business_outcomes/`** — the code-based evaluators, deployed as one Lambda.

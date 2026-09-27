@@ -31,8 +31,6 @@ DEPLOYED_ONLY_ENV = (
     "APPCONFIG_APPLICATION",
     "APPCONFIG_ENVIRONMENT",
     "APPCONFIG_PROFILE",
-    "MEMORY_RECEIPTSAGENTMEMORY_ID",
-    "AGENTCORE_MEMORY_ID",
     "RUN_EVENT_BUS",
 )
 
@@ -97,6 +95,11 @@ def main() -> None:
     telemetry = StrandsTelemetry()
     telemetry.tracer_provider.add_span_processor(SessionIdProcessor())
     telemetry.tracer_provider.add_span_processor(SimpleSpanProcessor(exporter))
+    # Trace Gateway calls as the deployed Runtime does under opentelemetry-instrument, so local
+    # and deployed traces have the same `mcp tools/call` spans (score_saved.py trims on them).
+    from amazon.opentelemetry.distro.instrumentation.mcp import McpInstrumentor
+
+    McpInstrumentor().instrument(tracer_provider=telemetry.tracer_provider)
 
     sys.path.insert(0, str(AGENT_DIR))
     import main as receipts_agent

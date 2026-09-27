@@ -28,11 +28,10 @@ from config import (
 )
 from decision import ReceiptDecision
 from identity import verify_identity
-from memory.session import get_memory_session_manager
 from model.load import load_model
 from model.settings import get_model_settings
 from parsing import build_run_event, parse_payload, to_cents
-from strands import Agent
+from strands import Agent, tool
 from strands.agent.conversation_manager import SlidingWindowConversationManager
 from strands.tools.mcp import MCPClient
 from tools.ocr import analyze_receipt
@@ -102,9 +101,7 @@ Rules:
 # Chat history for multi-turn query mode, keyed by (verified user_id, session_id). AgentCore
 # Runtime pins a session to one microVM for its lifetime, so in-process state is the
 # platform's own session model; history is lost only if that microVM is recycled, which a
-# chat can tolerate. AgentCore Memory is not used here: its strategies are namespaced for
-# receipt recall and chat turns would pollute them. Keying on the VERIFIED user keeps the
-# ADR-0016 guarantee: a session id replayed under another identity starts empty.
+# chat can tolerate (ADR-0018). Keying on the VERIFIED user keeps the ADR-0016 guarantee: a session id replayed under another identity starts empty.
 _CHAT_HISTORY: dict[tuple[str, str], list] = {}
 # Messages kept per conversation. The sliding window trims whole tool-use pairs, never half.
 CHAT_WINDOW_MESSAGES = 40
@@ -194,7 +191,6 @@ def _process(payload, context=None):
         return {"error": "s3_uri is required", "received": payload}
 
     reset_state()
-    session_id = f"receipt-{user_id}-{uuid.uuid4().hex}"
 
     # 1) OCR.
     try:
@@ -207,12 +203,6 @@ def _process(payload, context=None):
     # Deterministic line-item table parse (hybrid: parser first, LLM fallback).
     parsed_items = parse_line_items(ocr["line_items"])
     parse_rate = parse_success_rate(ocr["line_items"], parsed_items)
-
-    session_manager = None
-    try:
-        session_manager = get_memory_session_manager(session_id, user_id)
-    except Exception as exc:
-        log.warning("Memory unavailable: %s", exc)
 
     extractor_prompt = (
         f"User id: {user_id}\n\n"
@@ -232,7 +222,6 @@ def _process(payload, context=None):
             model=load_model(model_id=model_id, model_config={**params, "cache_prompt": "default"}),
             system_prompt=EXTRACTOR_PROMPT,
             tools=[submit_expense],
-            session_manager=session_manager,
         )
         extractor(extractor_prompt)
 
@@ -260,10 +249,9 @@ def _process(payload, context=None):
             # Cedar may DENY this at the gateway (total over the threshold): a deterministic
             # guardrail independent of the agents (spec §5.5). The decision then files a review.
             return _call_gateway_tool(
-                gateway=gateway,
-                semantic_name="save_expense",
-                resolved_name=save_name,
-                arguments={
+                gateway,
+                save_name,
+                {
                     **common,
                     "subtotal": expense["subtotal"],
                     "tax": expense["tax"],
@@ -276,12 +264,7 @@ def _process(payload, context=None):
             )
 
         def _review(reason: str):
-            return _call_gateway_tool(
-                gateway=gateway,
-                semantic_name="human_review",
-                resolved_name=review_name,
-                arguments={**common, "reason": reason},
-            )
+            return _call_gateway_tool(gateway, review_name, {**common, "reason": reason})
 
         decision = ReceiptDecision(
             save=_save,
@@ -305,50 +288,20 @@ def _process(payload, context=None):
                 raise decision.error
             decision.fallback_review("validator made no decision")
         except Exception:
-            validation = decision.validation
-            routing = validation.get("routing", "")
-            needs_review = decision.status != "processed"
-            cedar_blocked = decision.cedar_blocked
-            _tag_span_outcome(
-                status="error",
-                needs_review=needs_review,
-                cedar_blocked=cedar_blocked,
-                routing=routing,
-                total=expense["total"],
-                s3_uri=s3_uri,
-                extractor_confidence=expense.get("confidence"),
-                validator_confidence=validation.get("confidence"),
-                expense=expense,
-            )
+            _tag_span_outcome(status="error", s3_uri=s3_uri, expense=expense)
             raise
-        validation = decision.validation
-        routing = validation.get("routing", "NEEDS_REVIEW")
-        status = decision.status
-        result = decision.result
-        cedar_blocked = decision.cedar_blocked
-        needs_review = status != "processed"
+        _tag_span_outcome(status=decision.status, s3_uri=s3_uri, expense=expense)
 
-    _tag_span_outcome(
-        status=status,
-        needs_review=needs_review,
-        cedar_blocked=cedar_blocked,
-        routing=routing,
-        total=expense["total"],
-        s3_uri=s3_uri,
-        extractor_confidence=expense.get("confidence"),
-        validator_confidence=validation.get("confidence"),
-        expense=expense,
-    )
     return {
-        "status": status,
-        "needs_review": needs_review,
-        "cedar_blocked": cedar_blocked,
+        "status": decision.status,
+        "needs_review": decision.status != "processed",
+        "cedar_blocked": decision.cedar_blocked,
         "model": model_id,
         "extractor_confidence": expense["confidence"],
-        "validator": validation,
+        "validator": decision.validation,
         "parse_rate": parse_rate,
         "expense": expense,
-        "tool_result": _stringify(result),
+        "tool_result": _stringify(decision.result),
     }
 
 
@@ -370,10 +323,7 @@ Rules:
 
 
 def _reviewer_note(ocr_text: str, expense: dict, concern: str, model_id: str, params: dict) -> str:
-    """Write the note the reviewer reads, as the agent's own response text.
-
-    Returned as a response rather than buried in a tool argument on purpose: the evaluators that
-    score a human-facing artifact (PII leakage, malicious content) read the assistant turn.
+    """Write the note the reviewer reads, as the note writer's own response text.
 
     Best-effort. A receipt still reaches the review queue with its original terse reason if the
     note cannot be written, because the routing decision is already made by this point.
@@ -398,121 +348,40 @@ def _reviewer_note(ocr_text: str, expense: dict, concern: str, model_id: str, pa
         return ""
 
 
-def _call_gateway_tool(gateway, semantic_name: str, resolved_name: str, arguments: dict):
-    """Call one Gateway tool and emit the semantic tool span used by evaluations.
-
-    The model never gets the Gateway tools; the validator's pinned decision tools call them
-    here, with the arguments built in code, so Strands does not trace the Gateway call itself. Telemetry is best-effort and must
-    never cause the Gateway call to run twice or change its result/exception behavior.
-    """
-    call_id = uuid.uuid4().hex
-    span = None
-    try:
-        from opentelemetry import trace
-        from opentelemetry.trace import Status, StatusCode
-
-        # start_span captures the active invocation as parent without placing a
-        # telemetry context manager around the business call. Span start/end failures
-        # therefore cannot block the call or replace its real result.
-        span = trace.get_tracer("strands.telemetry.tracer").start_span(f"execute_tool {semantic_name}")
-        span.set_attribute("gen_ai.operation.name", "execute_tool")
-        span.set_attribute("gen_ai.system", "strands-agents")
-        span.set_attribute("gen_ai.tool.name", semantic_name)
-        span.set_attribute("gen_ai.tool.call.id", call_id)
-        span.add_event(
-            "gen_ai.tool.message",
-            {
-                "role": "tool",
-                "content": json.dumps(arguments, default=str),
-                "id": call_id,
-            },
-        )
-    except Exception as exc:  # noqa: BLE001 — the real tool call still proceeds
-        log.warning("gateway tool span setup failed for %s: %s", semantic_name, exc)
-        if span is not None:
-            try:
-                span.end()
-            except Exception as end_exc:  # noqa: BLE001 — telemetry is already unavailable
-                log.debug("gateway tool span cleanup failed for %s: %s", semantic_name, end_exc)
-        span = None
-
-    try:
-        result = gateway.call_tool_sync(tool_use_id=call_id, name=resolved_name, arguments=arguments)
-    except Exception as exc:
-        if span is not None:
-            try:
-                span.set_attribute("gen_ai.tool.status", "error")
-                span.record_exception(exc)
-                span.set_status(Status(StatusCode.ERROR, str(exc)[:256]))
-                span.end()
-            except Exception as telemetry_exc:  # noqa: BLE001 — preserve the original exception
-                log.warning("gateway tool error telemetry failed for %s: %s", semantic_name, telemetry_exc)
-        raise
-
-    if span is not None:
-        denied = _is_denied(result)
-        try:
-            span.set_attribute("gen_ai.tool.status", "error" if denied else "success")
-            span.add_event(
-                "gen_ai.choice",
-                {
-                    "message": json.dumps([{"text": _stringify(result)}]),
-                    "id": call_id,
-                },
-            )
-            span.set_status(Status(StatusCode.ERROR if denied else StatusCode.OK))
-            span.end()
-        except Exception as exc:  # noqa: BLE001 — return the real tool result unchanged
-            log.warning("gateway tool result telemetry failed for %s: %s", semantic_name, exc)
-    return result
+def _call_gateway_tool(gateway, name: str, arguments: dict):
+    """Call one Gateway tool. The model never gets the Gateway tools: the validator's pinned
+    decision tools call them here, with arguments built in code. The call is traced as an
+    `mcp tools/call <name>` span by the ADOT MCP instrumentation, nested under the validator's
+    decision; a Cedar denial shows on that span as an error with the policy message."""
+    return gateway.call_tool_sync(tool_use_id=uuid.uuid4().hex, name=name, arguments=arguments)
 
 
-def _tag_span_outcome(
-    *,
-    status: str,
-    needs_review: bool = False,
-    cedar_blocked: bool = False,
-    routing: str = "",
-    total=None,
-    s3_uri: str = "",
-    extractor_confidence=None,
-    validator_confidence=None,
-    expense: dict | None = None,
-) -> None:
-    """Stamp the final receipt outcome on the active invocation span.
+def _tag_span_outcome(*, status: str, s3_uri: str = "", expense: dict | None = None) -> None:
+    """Stamp the receipt's outcome on the invocation span AgentCore creates.
 
-    `receipts.s3_uri` is the receipt this run processed. An evaluator needs it to tell a real
-    duplicate from two separate purchases that share merchant, date, and amount, and it is the
-    only way to join a trace back to its ProcessingRuns row (receiptId = hash(s3_uri)).
+    Everything else about the run (the models, the decision tools, the Gateway calls and a Cedar
+    denial) is traced by Strands and the ADOT instrumentation. These are the facts the
+    evaluators need that those spans only carry as message content:
 
-    `expense` stamps the other extracted fields, so extraction accuracy can be scored from
-    attributes alone and keeps working when message content capture is switched off.
+    - `receipts.status`: the outcome, including runs that ended before any tool ran
+    - `receipts.total` and the other extracted fields, so extraction accuracy is scored from
+      attributes and keeps working when message content capture is switched off
+    - `receipts.s3_uri`: the receipt, which tells a real duplicate from two purchases that share
+      merchant, date and amount, and joins the trace to its ProcessingRuns row
     """
     try:
         from opentelemetry import trace
-        from opentelemetry.trace import Status, StatusCode
 
         span = trace.get_current_span()
-        if span is None or not span.is_recording():
+        if not span.is_recording():
             return
         span.set_attribute("receipts.status", status)
         if s3_uri:
             span.set_attribute("receipts.s3_uri", s3_uri)
-        span.set_attribute("receipts.needs_review", needs_review)
-        span.set_attribute("receipts.cedar_blocked", cedar_blocked)
-        if routing:
-            span.set_attribute("receipts.validator.routing", routing)
-        if total is not None:
-            span.set_attribute("receipts.total", total)
-        if extractor_confidence is not None:
-            span.set_attribute("receipts.extractor.confidence", extractor_confidence)
-        if validator_confidence is not None:
-            span.set_attribute("receipts.validator.confidence", validator_confidence)
-        for field in ("merchant", "transaction_date", "currency", "subtotal", "tax", "tip"):
+        for field in ("total", "merchant", "transaction_date", "currency", "subtotal", "tax", "tip"):
             value = (expense or {}).get(field)
             if value is not None and value != "":
                 span.set_attribute(f"receipts.{field}", value)
-        span.set_status(Status(StatusCode.ERROR if status == "error" else StatusCode.OK))
     except Exception as exc:  # noqa: BLE001 — telemetry is best-effort
         log.warning("span outcome-tag failed: %s", exc)
 
@@ -529,8 +398,6 @@ def _answer_query(user_id: str, question: str, session_id: str | None = None) ->
     the model physically cannot request another user's partition (defense-in-depth on
     top of the verified identity — even a prompt-injected 'show me user-012' can't
     escape). Read-only tool belt: no save_expense/human_review, so a query can't write."""
-    from strands import tool
-
     with _mcp_client() as gateway:
         gw_tools = gateway.list_tools_sync()
         profile_tool = _tool_name(gw_tools, "get_user_profile", "get_user_profile")
@@ -543,7 +410,7 @@ def _answer_query(user_id: str, question: str, session_id: str | None = None) ->
             the model the whole `MCPToolResult` (status/content/toolUseId) as multiply-
             escaped JSON made it unreliable at reading its own tool output (it sometimes
             declared 'no data' over data it received). Extract content[].text instead."""
-            res = gateway.call_tool_sync(tool_use_id=uuid.uuid4().hex, name=name, arguments=args)
+            res = _call_gateway_tool(gateway, name, args)
             content = res.get("content") if isinstance(res, dict) else getattr(res, "content", None)
             if content:
                 texts = []
@@ -626,19 +493,9 @@ def _emit_run_ledger(s3_uri, user_id, result) -> None:
 
 
 def _is_denied(result) -> bool:
-    """True if an MCP tool call was denied/errored (e.g. blocked by a Cedar policy).
-
-    A gateway policy denial surfaces as an error-status ToolResult rather than a
-    raised exception, so we inspect status + content text defensively.
-    """
-    try:
-        status = result.get("status") if isinstance(result, dict) else getattr(result, "status", None)
-    except Exception:
-        status = None
-    if status == "error":
-        return True
-    blob = _stringify(result).lower()
-    return any(k in blob for k in ("denied", "not authorized", "forbidden", "policy"))
+    """True if the Gateway refused the call. A Cedar denial comes back from the Gateway as an MCP
+    error, which Strands returns as a tool result with status "error" rather than raising."""
+    return result.get("status") == "error"
 
 
 def _stringify(result) -> str:

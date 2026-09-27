@@ -44,8 +44,6 @@ and follow-ups like "and at Starbucks?", read-only, for the signed-in user only.
   every trace.
 - **Evaluations:** code-based evaluators, built-in and third-party judges, a live
   configuration per Runtime ([ADR-0017](docs/decisions/0017-evaluators-from-business-outcomes.md)).
-- **Memory:** the agent integrates AgentCore Memory and degrades gracefully without it; the
-  stack does not create a Memory resource by default.
 
 ## Architecture
 
