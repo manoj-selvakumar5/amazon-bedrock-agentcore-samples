@@ -18,16 +18,17 @@ import uuid
 
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 from config import (
+    GATEWAY_CLIENT_ID,
+    GATEWAY_CLIENT_SECRET,
+    GATEWAY_OAUTH_SCOPES,
     GATEWAY_URL,
     IDENTITY_KEY_ID,
     REGION,
     RUN_EVENT_BUS,
 )
 from decision import ReceiptDecision
-from gateway_auth import get_gateway_token
 from identity import verify_identity
 from memory.session import get_memory_session_manager
-from mcp.client.streamable_http import streamablehttp_client
 from model.load import load_model
 from model.settings import get_model_settings
 from parsing import build_run_event, parse_payload, to_cents
@@ -110,12 +111,19 @@ CHAT_WINDOW_MESSAGES = 40
 
 
 def _mcp_client() -> MCPClient:
-    def _transport():
-        token = get_gateway_token()
-        headers = {"Authorization": f"Bearer {token}"} if token else None
-        return streamablehttp_client(GATEWAY_URL, headers=headers)
+    """The MCP connection to the Gateway, as the agent itself (agent-as-principal, ADR-0004).
 
-    return MCPClient(_transport)
+    Strands runs the OAuth client_credentials grant: the Gateway's 401 names its protected-resource
+    metadata, which names the Cognito pool, so the token endpoint is discovered, not configured.
+    Without client credentials (the local evaluation harness), it connects unauthenticated.
+    """
+    if not (GATEWAY_CLIENT_ID and GATEWAY_CLIENT_SECRET):
+        return MCPClient(url=GATEWAY_URL)
+    auth = {"client_id": GATEWAY_CLIENT_ID, "client_secret": GATEWAY_CLIENT_SECRET}
+    scopes = [s for s in GATEWAY_OAUTH_SCOPES.replace(",", " ").split() if s]
+    if scopes:
+        auth["scopes"] = scopes
+    return MCPClient(url=GATEWAY_URL, auth=auth)
 
 
 def _tool_name(tools, suffix: str, default: str) -> str:
@@ -393,8 +401,8 @@ def _reviewer_note(ocr_text: str, expense: dict, concern: str, model_id: str, pa
 def _call_gateway_tool(gateway, semantic_name: str, resolved_name: str, arguments: dict):
     """Call one Gateway tool and emit the semantic tool span used by evaluations.
 
-    Persistence and review are orchestrator-owned MCP calls, not Strands agent tools,
-    so Strands does not trace them automatically. Telemetry is best-effort and must
+    The model never gets the Gateway tools; the validator's pinned decision tools call them
+    here, with the arguments built in code, so Strands does not trace the Gateway call itself. Telemetry is best-effort and must
     never cause the Gateway call to run twice or change its result/exception behavior.
     """
     call_id = uuid.uuid4().hex

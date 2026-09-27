@@ -86,7 +86,6 @@ export class AgentCoreStack extends Stack {
       if (gatewayCfn) {
         runtime.addEnvironmentVariable('AGENTCORE_GATEWAY_URL', gatewayCfn.getAtt('GatewayUrl').toString());
       }
-      runtime.addEnvironmentVariable('AGENTCORE_GATEWAY_TOKEN_ENDPOINT', this.infra.cognitoTokenEndpoint);
       runtime.addEnvironmentVariable('AGENTCORE_GATEWAY_CLIENT_ID', this.infra.userPoolClient.userPoolClientId);
       runtime.addEnvironmentVariable(
         'AGENTCORE_GATEWAY_CLIENT_SECRET',

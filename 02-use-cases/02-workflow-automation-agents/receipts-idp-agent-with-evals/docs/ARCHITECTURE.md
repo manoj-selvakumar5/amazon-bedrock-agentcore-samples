@@ -83,7 +83,7 @@ This sample originally carried a model degradation ladder (per-rung models and f
 
 ## Component inventory
 
-- **`app/receiptsagent/`** — the agent. `main.py` (dual-agent entrypoint), `config.py` (the single env-read seam), `model/settings.py` (the live model settings + the appconfigdata reader), `tools/` (OCR, structured output, the table parser), `gateway_auth.py` (M2M token), `memory/`, `mcp_client/`.
+- **`app/receiptsagent/`** — the agent. `main.py` (dual-agent entrypoint), `config.py` (the single env-read seam), `model/settings.py` (the live model settings + the appconfigdata reader), `tools/` (OCR, structured output, the table parser), `memory/`, `mcp_client/`.
 - **`lambdas/`** — the Gateway tools (`get_user_profile`, `get_recent_expenses`, `lookup_merchant`, `save_expense`, `human_review`) + the front-door `trigger` + the run-ledger writer, each with its schema under `lambdas/schemas/`.
 - **`agentcore/agentcore.json`** — the AgentCore resources: two Runtimes, the Gateway and targets, the PolicyEngine and Cedar policies, the code-based evaluators, the `ReceiptsLive` online config.
 - **`evaluators/business_outcomes/`** — the code-based evaluators, deployed as one Lambda.
