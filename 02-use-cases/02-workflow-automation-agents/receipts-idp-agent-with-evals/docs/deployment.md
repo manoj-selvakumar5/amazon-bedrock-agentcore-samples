@@ -67,18 +67,6 @@ aws cloudformation describe-stack-events --stack-name AgentCore-ReceiptsAgent-de
   --query "StackEvents[?ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceStatusReason]" --output table
 ```
 
-## Local inner loop
-
-The evaluation harness runs the real agent code on your machine against a stand-in Gateway, with no deploy:
-
-```bash
-cd evals && uv venv --python 3.12 && uv pip install -r ../app/receiptsagent/requirements.txt "bedrock-agentcore>=1.22" pillow
-.venv/bin/python run_chat.py                          # the chat assistant, scripted conversations
-.venv/bin/python run_dataset.py --bucket <bucket>     # the pipeline on the labelled receipts
-```
-
-With AppConfig and the Gateway env unset, the agent runs on `AGENT_MODEL_ID` with the model's default inference parameters.
-
 ## Automated end-to-end
 
 `make e2e` (or `scripts/e2e.sh`) is a one-shot **real** deploy, then assertions against the live stack, then destroy, exiting with the test result. `make unit` runs the tests that need no AWS. `make synth` builds and synthesizes the CDK app without creating resources.

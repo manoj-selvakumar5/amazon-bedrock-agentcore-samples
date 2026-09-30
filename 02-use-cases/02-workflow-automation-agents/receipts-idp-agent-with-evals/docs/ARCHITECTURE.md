@@ -57,12 +57,12 @@ Evaluators were chosen from the business outward and contrast-tested before bein
   - `ReceiptsAgent_ChatLive` scores every chat session with ConversationCompleteness and KnowledgeRetention.
   - Online configs select sessions by service name, which is why chat has its own Runtime ([ADR-0018](decisions/0018-separate-chat-runtime.md)).
 - **On labelled data, in `evals/`:**
-  - extraction accuracy and routing (code-based, deployed as the same Lambda)
+  - extraction accuracy and routing (code-based, deployed as Lambdas)
   - ToolParameterAccuracy on the extractor's part of the trace
   - GoalSuccessRate with per-receipt assertions on the trace through the validator
   - Correctness per chat turn
 
-  These run locally or against the deployed stack.
+  These run on the labelled set sent through the deployed stack (`evals/run_deployed.py`).
 
 ## Live model settings
 

@@ -1,7 +1,6 @@
-"""Run the labelled receipts and the chat conversations through the DEPLOYED stack.
+"""Run the labelled receipts and the chat conversations through the deployed stack.
 
-The local runners (run_dataset.py, run_chat.py) exercise the agent code on a laptop with
-a stand-in Gateway. This one exercises what is actually deployed, end to end:
+It exercises what is actually deployed, end to end:
 
   receipts  each fixture is uploaded to the S3 inbox, which triggers the pipeline Runtime
             through EventBridge exactly as a real receipt would. The script waits for the
@@ -10,13 +9,14 @@ a stand-in Gateway. This one exercises what is actually deployed, end to end:
   chat      each conversation is one chat Runtime session, turn by turn, with a signed
             identity token for the seeded conversation user
 
-Output is written in the same shape the local runners write, so the same scorers apply:
+Score the output with:
 
     python score_saved.py --run out/deployed-<id>        routing, right reason, invented values
     python score_chat.py  --run out/deployed-chat-<id>   completeness, retention, correctness
 
-Extraction accuracy and the threshold control are scored here, as run_dataset.py does.
-The cross-receipt duplicate check is not: it reads the local gateway's write log.
+Extraction accuracy and the threshold control are scored here. So are the two failures that
+exist only between receipts, a duplicate overwriting the first copy and a bill split under the
+Cedar limit, read from the Expenses table after the run (cross_receipt.json).
 
 Usage:
     python run_deployed.py                   # receipts and chat
@@ -25,6 +25,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import sys
 import time
@@ -60,6 +61,73 @@ def output(outs: dict[str, str], exact: str, prefix: str | None = None) -> str:
         if prefix and key.startswith(prefix):
             return value
     raise SystemExit(f"stack output {exact or prefix} not found")
+
+
+def expense_id(user_id: str, merchant: str, date: str, total) -> str:
+    """Same content hash as lambdas/save_expense/handler.py, so seeded rows key like saved ones."""
+    raw = f"{user_id}|{merchant}|{date}|{total}".lower()
+    return "exp-" + hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def cross_receipt_checks(expenses, user: str, uploaded: dict[str, str], fates: dict, threshold: float) -> dict:
+    """Failures no per-receipt evaluator can see, read from the Expenses table after the run.
+
+    duplicate  a receipt that finished but owns no Expenses row: a later receipt with the same
+               merchant, date and total wrote the same expenseId over it
+    split      receipts saved automatically for one merchant and date, each under the Cedar
+               limit, together at or over it
+    """
+    from boto3.dynamodb.conditions import Key
+
+    rows, kwargs = [], {"KeyConditionExpression": Key("userId").eq(user)}
+    while True:
+        page = expenses.query(**kwargs)
+        rows += page.get("Items", [])
+        if "LastEvaluatedKey" not in page:
+            break
+        kwargs["ExclusiveStartKey"] = page["LastEvaluatedKey"]
+    fixture_of = {uri: fixture_id for fixture_id, uri in uploaded.items()}
+    owner = {row.get("sourceReceiptS3"): row for row in rows}
+
+    duplicates = []
+    for fixture_id, uri in uploaded.items():
+        if (fates.get(fixture_id) or {}).get("status") in ("processed", "needs_review") and uri not in owner:
+            fate = fates[fixture_id]
+            by = next(
+                (
+                    fixture_of.get(row.get("sourceReceiptS3"), "?")
+                    for row in rows
+                    if row.get("merchant") == fate.get("merchant") and str(row.get("total")) == str(fate.get("total"))
+                ),
+                "?",
+            )
+            duplicates.append({"receipt": fixture_id, "overwritten_by": by})
+
+    groups: dict[tuple, list] = {}
+    for row in rows:
+        if row.get("status") == "processed":
+            groups.setdefault((row.get("merchant"), row.get("transactionDate")), []).append(row)
+    splits = []
+    for (merchant, date), group in groups.items():
+        totals = [float(row["total"]) for row in group]
+        if len(group) > 1 and sum(totals) >= threshold and all(t < threshold for t in totals):
+            receipts = [fixture_of.get(row.get("sourceReceiptS3"), "?") for row in group]
+            splits.append({"merchant": merchant, "date": date, "receipts": receipts, "totals": totals})
+
+    print("\nCross-receipt checks")
+    for d in duplicates:
+        print(f"  duplicate: {d['receipt']} has no expense row of its own; {d['overwritten_by']} wrote over it")
+    if not duplicates:
+        print("  duplicate: none detected")
+    for sp in splits:
+        amounts = " + ".join(f"{t:.2f}" for t in sp["totals"])
+        print(
+            f"  split:     {sp['merchant']} on {sp['date']}, {amounts} = {sum(sp['totals']):.2f} saved "
+            f"automatically across {', '.join(sp['receipts'])}, each under the {threshold:.0f} limit"
+        )
+    if not splits:
+        print("  split:     none detected")
+    return {"duplicates": duplicates, "splits": splits}
 
 
 def runtime_log_group(runtime_arn: str) -> str:
@@ -120,7 +188,7 @@ def run_receipts(args, boto3, outs: dict[str, str], collector_cls) -> Path:
     sys.path.insert(0, str(ROOT / "app" / "receiptsagent"))
     sys.path.insert(0, str(ROOT / "evaluators" / "business_outcomes"))
     from bedrock_agentcore.evaluation.custom_code_based_evaluators import EvaluatorInput
-    from business_outcomes import _receipt_attributes, handler
+    from business_outcomes import POLICY_THRESHOLD, _receipt_attributes, handler
     from parsing import receipt_id
 
     region = args.region
@@ -138,7 +206,7 @@ def run_receipts(args, boto3, outs: dict[str, str], collector_cls) -> Path:
     user = f"eval-deployed-{run_tag}"
     started = datetime.now(timezone.utc) - timedelta(minutes=1)
 
-    # Upload in fixture order: duplicate_b and split_b follow their first halves, as locally.
+    # Upload in fixture order, so duplicate_b and split_b follow their first halves.
     uploaded = {}
     for fixture_id in labels:
         key = f"receipts/{user}/{fixture_id}.png"
@@ -211,6 +279,9 @@ def run_receipts(args, boto3, outs: dict[str, str], collector_cls) -> Path:
         print(f"  {fixture_id:16s} {len(spans):3d} spans  {results[-1]['actual']}  {extraction.label}  {control.label}")
 
     (run_dir / "results.json").write_text(json.dumps(results, indent=2, default=str))
+    expenses = boto3.resource("dynamodb", region_name=region).Table("ReceiptsAgent-Expenses")
+    cross = cross_receipt_checks(expenses, user, uploaded, fates, POLICY_THRESHOLD)
+    (run_dir / "cross_receipt.json").write_text(json.dumps(cross, indent=2, default=str))
     print(f"\nWritten to {run_dir}. Score with: python score_saved.py --run {run_dir}")
     return run_dir
 
@@ -225,9 +296,6 @@ def run_chat(args, boto3, outs: dict[str, str], collector_cls) -> Path:
     dynamodb = boto3.resource("dynamodb", region_name=region)
 
     # Seed the conversation user and their expenses, keyed as save_expense keys them.
-    sys.path.insert(0, str(HERE))
-    from local_gateway import _expense_id
-
     dynamodb.Table("ReceiptsAgent-Users").put_item(Item=user)
     expenses = dynamodb.Table("ReceiptsAgent-Expenses")
     from decimal import Decimal
@@ -235,7 +303,7 @@ def run_chat(args, boto3, outs: dict[str, str], collector_cls) -> Path:
     for row in spec["expenses"]:
         item = {k: (Decimal(str(v)) if isinstance(v, float) else v) for k, v in row.items()}
         item["userId"] = user["userId"]
-        item["expenseId"] = _expense_id(user["userId"], row["merchant"], row["transactionDate"], row["total"])
+        item["expenseId"] = expense_id(user["userId"], row["merchant"], row["transactionDate"], row["total"])
         item["total"] = str(row["total"])
         expenses.put_item(Item=item)
     print(f"Seeded {user['userId']} with {len(spec['expenses'])} expenses")

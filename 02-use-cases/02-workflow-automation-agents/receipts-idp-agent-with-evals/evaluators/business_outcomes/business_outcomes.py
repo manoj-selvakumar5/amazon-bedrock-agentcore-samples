@@ -21,7 +21,7 @@ content, so all three keep working when prompt and completion capture is switche
 threshold monitor also reads the Gateway call's own span to tell a Cedar denial apart.
 
 Duplicates and splits are deliberately not here. That failure exists between receipts, so a
-per-session evaluator cannot see it. It lives in the dataset scorer locally.
+per-session evaluator cannot see it. evals/run_deployed.py reports it from the Expenses table.
 
 Test locally with no AWS:
 

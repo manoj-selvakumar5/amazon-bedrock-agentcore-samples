@@ -112,10 +112,7 @@ def _mcp_client() -> MCPClient:
 
     Strands runs the OAuth client_credentials grant: the Gateway's 401 names its protected-resource
     metadata, which names the Cognito pool, so the token endpoint is discovered, not configured.
-    Without client credentials (the local evaluation harness), it connects unauthenticated.
     """
-    if not (GATEWAY_CLIENT_ID and GATEWAY_CLIENT_SECRET):
-        return MCPClient(url=GATEWAY_URL)
     auth = {"client_id": GATEWAY_CLIENT_ID, "client_secret": GATEWAY_CLIENT_SECRET}
     scopes = [s for s in GATEWAY_OAUTH_SCOPES.replace(",", " ").split() if s]
     if scopes:

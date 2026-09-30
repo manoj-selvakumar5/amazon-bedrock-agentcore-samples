@@ -17,7 +17,7 @@ scored. Chat is a single agent with one session per conversation, so the whole-s
 from the receipt pipeline does not apply.
 
 Usage:
-    python score_chat.py --run out/chat-<id>
+    python score_chat.py --run out/deployed-chat-<id>
 """
 
 import argparse
@@ -30,7 +30,7 @@ EVALUATORS = ["ThirdParty.DeepEval.ConversationCompleteness", "ThirdParty.DeepEv
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--run", type=Path, required=True, help="A run directory written by run_chat.py")
+    parser.add_argument("--run", type=Path, required=True, help="A run directory written by run_deployed.py")
     parser.add_argument("--region", default="us-west-2")
     parser.add_argument("--conversations", type=Path, default=HERE / "fixtures" / "conversations.json")
     return parser.parse_args()
@@ -53,8 +53,8 @@ def score(client, evaluator_id: str, spans: list[dict]) -> dict:
 def turn_traces(spans: list[dict]) -> list[str]:
     """Trace ids of the conversation's turns, in order.
 
-    Each turn is its own trace: one invocation of the deployed Runtime, or one chat.turn root
-    in the local harness. So the turns are the distinct trace ids, ordered by when each began.
+    Each turn is its own trace, one invocation of the chat Runtime, so the turns are the
+    distinct trace ids, ordered by when each began.
     """
     first_seen: dict[str, int] = {}
     for span in spans:

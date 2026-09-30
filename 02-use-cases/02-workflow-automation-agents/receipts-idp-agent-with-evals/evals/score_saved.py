@@ -1,6 +1,6 @@
 """Re-score saved receipt traces without re-running the agent.
 
-The traces from `run_dataset.py` are on disk, so new evaluators can be added and scored
+The traces from `run_deployed.py` are on disk, so new evaluators can be added and scored
 against receipts that have already been processed. No Textract, no extraction model, no
 waiting. Only the judge calls an evaluator makes itself.
 
@@ -25,7 +25,7 @@ invented dates, and on the extractor's part alone it caught every one. For the s
 it cannot run in an online config, which scores the whole session.
 
 Usage:
-    python score_saved.py --run out/dataset-<id>
+    python score_saved.py --run out/deployed-<id>
 """
 
 import argparse
@@ -121,7 +121,7 @@ def extractor_only(spans: list[dict]) -> list[dict]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--run", type=Path, required=True, help="A run directory written by run_dataset.py")
+    parser.add_argument("--run", type=Path, required=True, help="A run directory written by run_deployed.py")
     parser.add_argument("--region", default="us-west-2")
     parser.add_argument("--fixtures", type=Path, default=HERE / "fixtures")
     parser.add_argument(

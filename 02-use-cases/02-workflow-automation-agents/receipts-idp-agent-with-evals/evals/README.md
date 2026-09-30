@@ -13,12 +13,10 @@ uv venv --python 3.12
 uv pip install -r ../app/receiptsagent/requirements.txt "bedrock-agentcore>=1.22" pillow
 ```
 
-AWS credentials with Bedrock, Textract and AgentCore access are needed; local runs also need
-an S3 bucket for the receipt images.
+AWS credentials with AgentCore, CloudWatch Logs, S3 and DynamoDB access are needed, and the
+stack deployed with `./deploy.sh`.
 
-## Two ways to run
-
-**Against the deployed stack** (after `./deploy.sh`):
+## Run
 
 ```bash
 .venv/bin/python run_deployed.py                                  # receipts and chat
@@ -29,32 +27,26 @@ an S3 bucket for the receipt images.
 `run_deployed.py` uploads each labelled receipt to the S3 inbox, which triggers the
 deployed pipeline exactly as a real receipt would. It then waits for the run ledger, finds
 each receipt's session through the `receipts.s3_uri` span attribute, and collects its
-trace from CloudWatch. It also seeds the conversation user and runs each conversation as
-one chat Runtime session.
+trace from CloudWatch. After the receipts it reads the Expenses table for the two failures
+that exist only between receipts, a duplicate overwriting the first copy and a bill split
+under the Cedar limit. It also seeds the conversation user and runs each conversation as
+one chat Runtime session. `--only receipts` or `--only chat` runs one workload.
 
-**Locally**, with the real agent code and a stand-in Gateway (`local_gateway.py`: the
-tools against an in-memory table, and the Cedar rule, which `--without-policy` switches off):
-
-```bash
-.venv/bin/python run_dataset.py --bucket <s3 bucket in the region>
-.venv/bin/python score_saved.py --run out/dataset-<id>
-.venv/bin/python run_chat.py
-.venv/bin/python score_chat.py --run out/chat-<id>
-```
-
-Both paths write the same output shapes, so the scorers are shared.
+Keep the machine awake for the whole run (`caffeinate -i` on macOS): each chat turn carries
+an identity token that expires after 15 minutes, and a request sent after a sleep is
+rejected.
 
 ## What each script scores
 
 | Script | Evaluators |
 |---|---|
-| `run_dataset.py`, `run_deployed.py` | `ReceiptsExtractionAccuracy`, `ReceiptsThresholdControl`, called in-process |
+| `run_deployed.py` | `ReceiptsExtractionAccuracy`, `ReceiptsThresholdControl`, called in-process; the cross-receipt duplicate and split checks |
 | `score_saved.py` | `ReceiptsRoutingOutcome`; `Builtin.GoalSuccessRate` with per-receipt assertions, on the trace through the validator; `Builtin.ToolParameterAccuracy` on the extractor's part of the trace |
 | `score_chat.py` | `ThirdParty.DeepEval.ConversationCompleteness`, `ThirdParty.DeepEval.KnowledgeRetention`, and `Builtin.Correctness` per turn against `fixtures/conversations.json` |
 
 The code-based evaluators live in `../evaluators/business_outcomes/`. The same code is
-deployed as the evaluator Lambda, so a local score and a deployed score come from one
-implementation. `tests/test_e2e_evaluators_live.py` checks that: it calls all three deployed evaluators
+deployed as the evaluator Lambdas, so a score from the harness and a score from AgentCore come
+from one implementation. `tests/test_e2e_evaluators_live.py` checks that: it calls all three deployed evaluators
 through the AgentCore Evaluate API, so AgentCore invokes the real Lambdas, and asserts the
 labels the local handler gives.
 

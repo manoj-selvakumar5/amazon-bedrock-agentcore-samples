@@ -8,7 +8,7 @@ parameters are read live from AppConfig, so they can be changed without a redepl
 It ships with an **evaluation suite** chosen from the business outward, not copied from a
 list: every evaluator judges a decision a model makes, and every judge was contrast-tested
 before it was trusted. Three evaluators run live in AgentCore; the rest run against
-labelled data, locally or against the deployed stack.
+labelled data sent through the deployed stack.
 
 > [!IMPORTANT]
 > This sample is for experimental and educational purposes only. It demonstrates
@@ -140,9 +140,7 @@ uv venv --python 3.12 && uv pip install -r ../app/receiptsagent/requirements.txt
 .venv/bin/python score_chat.py  --run out/deployed-chat-<id>   # completeness, retention, correctness
 ```
 
-**Locally**, with the real agent code against a stand-in Gateway: `run_dataset.py` and
-`run_chat.py` produce the same output shapes, so the same scorers apply. See
-[evals/README.md](evals/README.md).
+See [evals/README.md](evals/README.md).
 
 ## Front door, run ledger and chat
 
